@@ -3,7 +3,7 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 5,
+  "version": 6,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
@@ -11,7 +11,7 @@
   "created": "2026-11-09",
   "updated": "2026-11-09",
   "review_after": "2027-02-09",
-  "source_revision": "ccfdcdcbe3f712950da3ae2672a8ed912626d752",
+  "source_revision": "d6917eb2c4097ac364a4e51bbebefcb9ac134b56",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -26,7 +26,10 @@
     "https://github.com/subactor/validator-agent/actions/runs/42702186932",
     "receipt:initial-ref-accepted-f6be13bd4201f3ddb46a433f",
     "https://github.com/wellmanifest/sorust/blob/ccfdcdcbe3f712950da3ae2672a8ed912626d752/src/sorust/__init__.py",
-    "https://github.com/wellmanifest/sorust/blob/ccfdcdcbe3f712950da3ae2672a8ed912626d752/tests/test_build.py"
+    "https://github.com/wellmanifest/sorust/blob/ccfdcdcbe3f712950da3ae2672a8ed912626d752/tests/test_build.py",
+    "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/src/sorust/_compat.py",
+    "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/tests/test_build.py"
   ]
 }
 ---
@@ -56,6 +59,8 @@ Lokalne wyniki dystrybucji: `dist/sorust-0.1.0-cp313-cp313-linux_x86_64.whl` i `
 
 Korekta wiązania importu w źródle `ccfdcdcbe3f712950da3ae2672a8ed912626d752`: na bazie `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa` odtworzono import `_compat.so` pominiętego w manifeście, mimo poprawnych sum pliku `listed_copy.so`. Runtime sprawdza teraz przed importem, czy wybrany natywny loader wskazuje plik wymieniony w zweryfikowanych wpisach `python-extension`, i porównuje pochodzenie zaimportowanego modułu. Cztery przypadki testu `test_compiled_import_requires_manifest_bound_native_module` zakończyły się PASS: nieujęta binarka, źródło `.py`, brak rozszerzenia i wcześniej zaimportowana nieujęta binarka. Test źródła potwierdza brak wykonania kodu `.py` przed odrzuceniem. Pełny zestaw walidacji korekty: 25 testów pytest PASS (47,32 s) oraz 2 testy Cargo PASS. Schemat manifestu i ABI C v1 pozostają zgodne.
 
+Korekta bufora w źródle `d6917eb2c4097ac364a4e51bbebefcb9ac134b56`: na bazie `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` stub Python zarejestrował długość 1024 dla rzeczywistego bufora 7 bajtów podklasy `bytes`; funkcji natywnej nie uruchamiano z tą długością. Zwykła podklasa dawała też Rust=2 i TypeError w compiled-python. Runtime i wzorzec Python normalizują teraz podklasy przez eksportowany bufor do niezmiennych `bytes`. Metody `__len__`, `__iter__`, `__bytes__` nie wyznaczają danych ani długości FFI. Zwykłe `bytes` zachowują ten sam obiekt bez dodatkowej kopii w adapterze. Siedem nowych testów zakończyło się PASS: bezpieczny stub nadmiernej długości, zachowanie tożsamości zwykłych bajtów oraz pięć wariantów zgodności wzorca, Rust i compiled-python. Test natywny nadpisanej długości używa wartości 0, aby również na błędnej bazie nie wykonywać odczytu poza buforem. Pełna walidacja korekty: 32 testy pytest PASS (17,51 s) i 2 testy Cargo PASS; ABI C i algorytm Rust zachowano.
+
 <!-- docs:section content -->
 ## Content
 
@@ -69,6 +74,7 @@ Korekta wiązania importu w źródle `ccfdcdcbe3f712950da3ae2672a8ed912626d752`:
 | SORUST-006 | Zmiana jądra MUSI przejść testy różnicowe względem zaakceptowanej semantyki oraz pomiar reprezentatywnych rozmiarów. Migracja kolejnych bottlenecków wymaga profilowania. |
 | SORUST-007 | Jedno jądro ma jednego właściciela, własną wersję i jedną odpowiedzialność. Konsumenci MUSZĄ reużywać dystrybucję zamiast kopiować implementację. |
 | SORUST-008 | Budowanie Rust używa `--release --locked --offline`. Sdist MUSI zawierać źródła, Cargo.lock i konfigurację backendu; zależności Cargo należy wcześniej dostarczyć do cache lub vendor. |
+| SORUST-009 | Adapter Python MUSI przekazać do ABI C długość rzeczywistego, niezmiennego bufora. Podklasy `bytes` w `count_ascii_tokens` normalizuje się z bufora przed obiema implementacjami; zwykłe `bytes` zachowują ścieżkę bez dodatkowej kopii w adapterze. |
 
 Pierwsze jądro `sorust-kernel` liczy tokeny bajtowe oddzielone dokładnie przez spację i bajty 9–13. Pozostałe bajty, w tym NUL i UTF-8, są nieprzezroczyste. To nie jest tokenizer modelu LLM.
 
