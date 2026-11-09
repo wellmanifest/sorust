@@ -5,3 +5,5 @@ recursive-include docs *.md
 recursive-include tests *.py
 global-exclude *.so *.dylib *.dll *.pyc
 prune crates/sorust-kernel/target
+prune build
+prune examples
