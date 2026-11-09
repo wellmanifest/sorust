@@ -3,7 +3,7 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 1,
+  "version": 2,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "draft",
   "owner": "wellmanifest/sorust",
@@ -11,14 +11,16 @@
   "created": "2026-11-09",
   "updated": "2026-11-09",
   "review_after": "2027-02-09",
-  "source_revision": "1ace68950190cacfe2ff6435b751f28526b5512a",
+  "source_revision": "fcfe82128748e23dc711b5d79ae776e8198a6306",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
   "evidence": [
     "repo://wellmanifest/sorust/src/sorust/backend.py",
     "repo://wellmanifest/sorust/tests/test_build.py",
-    "repo://wellmanifest/sorust/crates/sorust-kernel/src/lib.rs"
+    "repo://wellmanifest/sorust/crates/sorust-kernel/src/lib.rs",
+    "https://github.com/wellmanifest/sorust",
+    "receipt:sorust-initial-ref-plan.7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045"
   ]
 }
 ---
@@ -38,7 +40,7 @@ HOME: `wellmanifest/sorust`, pakiet standardu i implementacja referencyjna. Każ
 <!-- docs:section evidence -->
 ## Evidence
 
-Źródło implementacji: commit `1ace68950190cacfe2ff6435b751f28526b5512a`. Testy budują wheel także z sdist, instalują go w osobnym venv, sprawdzają rozszerzenie, ABI, sumy kontrolne oraz klientów C, Rust i Python. Wynik: 21 testów pytest i dwa testy Cargo; wheel zbudowano również z sdist. Klient C używa dołączonego nagłówka. Odrzucono brakujące i zmodyfikowane artefakty oraz niezgodne ABI. Backend sprawdzono także w obcym pakiecie.
+Źródło implementacji: commit `fcfe82128748e23dc711b5d79ae776e8198a6306`. Testy budują wheel także z sdist, instalują go w osobnym venv, sprawdzają rozszerzenie, ABI, sumy kontrolne oraz klientów C, Rust i Python. Wynik: 21 testów pytest i dwa testy Cargo; wheel zbudowano również z sdist. Klient C używa dołączonego nagłówka. Odrzucono brakujące i zmodyfikowane artefakty oraz niezgodne ABI. Backend sprawdzono także w obcym pakiecie.
 
 
 
@@ -117,9 +119,12 @@ Konsumenci gotowego wheel-a nie potrzebują Rust ani Cython. Klient C korzysta z
 <!-- docs:section limitations -->
 ## Limitations
 
-Walidacja obejmuje Linux x86_64 i CPython 3.13. Brak skonfigurowanego origin, PR i publikacji. Pełna adopcja chronionej bramy Docs nie jest skonfigurowana; układ, metadane i indeks są kontrolowane lokalnie. Zarządzany checkpoint wymaga origin, dlatego nowe lokalne repo zachowuje ograniczony osobny checkpoint bez fikcyjnego remote. Brak canary manylinux, macOS, Windows, innych interpreterów oraz porównania na rzeczywistych zadaniach `nl-*`. Suma kontrolna wykrywa drift, nie uwierzytelnia wydawcy; zaufanie do wheel-a wymaga oddzielnej proweniencji. Ładowanie i import są buforowane w procesie. Cython nie gwarantuje przyspieszenia dowolnego kodu Python ani obsługi każdej dynamicznej konstrukcji. Nie deklarujemy bitowej odtwarzalności między hostami.
+Walidacja obejmuje Linux x86_64 i CPython 3.13. Repozytorium `wellmanifest/sorust` istnieje na GitHubie i ma skonfigurowany origin, lecz nadal nie ma żadnej zdalnej gałęzi. Hook odrzucił pierwsze wypchnięcie `main` kodem GOV-PUSH-001. PR i merge czekają na chronioną inicjalizację pierwszej referencji; hooków nie wyłączono. Profil Validatora dopuszcza repo i wymaga `governance / enforce` oraz `governance / remote lifecycle`, ale konfiguracja nie stanowi dowodu ich wykonania. Pełna adopcja chronionej bramy Docs nie jest skonfigurowana; układ, metadane i indeks kontroluje się lokalnie. Zarządzany checkpoint v2 działa po dodaniu origin. Brak canary manylinux, macOS, Windows, innych interpreterów oraz porównania na rzeczywistych zadaniach `nl-*`. Suma kontrolna wykrywa drift, nie uwierzytelnia wydawcy; zaufanie do wheel-a wymaga oddzielnej proweniencji. Ładowanie i import są buforowane w procesie. Cython nie gwarantuje przyspieszenia dowolnego kodu Python ani obsługi każdej dynamicznej konstrukcji. Nie deklarujemy bitowej odtwarzalności między hostami.
 
 <!-- docs:section next_actions -->
 ## Next Actions
 
 Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają testy zgodności i adoptują wydany pakiet zgodnie z instrukcją adopcji powyżej. Zmiany ABI wymagają nowego numeru ABI i jawnej migracji. Chroniona publikacja i macierz platform pozostają oddzielnymi krokami przed szeroką adopcją.
+
+
+Chroniona inicjalizacja musi opublikować wyłącznie bazę governance `ea1bf67895e4ca2abda99d44fc8a538b01470350`, z pełną allowlistą 138 plików. Plan `initial-ref-aa50fb9513cfd8d684c0d3d8` ma digest `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`. Brakuje świeżego jednorazowego grant-binding od niezależnego issuera oraz uruchomienia chronionego Publishera. Po niezależnej walidacji początkowej referencji należy wysłać gałąź ticket-001, otworzyć PR i uzyskać zatwierdzenie oraz merge Validatora. Plan jest propozycją, nie grantem ani zgodą na bezpośrednią zmianę main.

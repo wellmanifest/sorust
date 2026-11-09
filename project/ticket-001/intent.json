@@ -45,9 +45,9 @@
   "delivery": {
     "acceptedBaseSha": "ea1bf67895e4ca2abda99d44fc8a538b01470350",
     "targetBranch": "main",
-    "outcome": "Build compiled Python extensions and reusable atomic Rust cdylibs in platform wheels with checksums, versioned C ABI, parity tests and adoption guidance for nl-* consumers.",
+    "outcome": "Build compiled Python extensions and reusable atomic Rust cdylibs in platform wheels with checksums, versioned C ABI, parity tests and adoption guidance for nl-* consumers. Continue through GitHub PR and independent protected merge under the user publication request of 2026-11-09; initial-ref publication requires its separate protected grant.",
     "nonGoals": [
-      "Migrate existing consumer repositories, create remote repositories or publish to registries.",
+      "Migrate existing consumer repositories, publish to package registries, forge initial-ref grants, disable hooks or perform author approval/merge.",
       "Claim automatic speedup for arbitrary Python, stable Rust ABI or cross-platform validation from one host."
     ],
     "complexity": "L",
@@ -139,6 +139,14 @@
           "git diff --check"
         ],
         "evidence": "Bounded local governance and canonical documentation checks; no claim of remote approval."
+      },
+      {
+        "criterion": "AC-04",
+        "commands": [
+          "protected Repository Publisher initial-ref plan/grant publication",
+          "deployed Validator run-local-direct-pr.sh --merge after required checks"
+        ],
+        "evidence": "Independent grant and initial-ref Validator receipt precede PR creation; exact-head approval and confirmed merge remain required. Missing authority is recorded in the initial-ref outbox."
       }
     ]
   }
