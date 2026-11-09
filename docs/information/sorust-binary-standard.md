@@ -3,7 +3,7 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 2,
+  "version": 3,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "draft",
   "owner": "wellmanifest/sorust",
@@ -11,7 +11,7 @@
   "created": "2026-11-09",
   "updated": "2026-11-09",
   "review_after": "2027-02-09",
-  "source_revision": "fcfe82128748e23dc711b5d79ae776e8198a6306",
+  "source_revision": "16e3f1e907fa406277cc4bd27931ebedc1339c43",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -20,7 +20,8 @@
     "repo://wellmanifest/sorust/tests/test_build.py",
     "repo://wellmanifest/sorust/crates/sorust-kernel/src/lib.rs",
     "https://github.com/wellmanifest/sorust",
-    "receipt:sorust-initial-ref-plan.7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045"
+    "receipt:sorust-initial-ref-plan.7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045",
+    "https://github.com/subactor/onedev-agent/blob/8ac2658e3fcd7d2df3375a8ece8bbe775329da9b/packages/diagit-control/onedev_diagit_control/initial_ref.py"
   ]
 }
 ---
@@ -128,3 +129,8 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 
 Chroniona inicjalizacja musi opublikować wyłącznie bazę governance `ea1bf67895e4ca2abda99d44fc8a538b01470350`, z pełną allowlistą 138 plików. Plan `initial-ref-aa50fb9513cfd8d684c0d3d8` ma digest `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`. Brakuje świeżego jednorazowego grant-binding od niezależnego issuera oraz uruchomienia chronionego Publishera. Po niezależnej walidacji początkowej referencji należy wysłać gałąź ticket-001, otworzyć PR i uzyskać zatwierdzenie oraz merge Validatora. Plan jest propozycją, nie grantem ani zgodą na bezpośrednią zmianę main.
+
+
+Ustalona przyczyna niedostępności grantu: opublikowany issuer OneDev w rewizji `8ac2658e3fcd7d2df3375a8ece8bbe775329da9b` sprawdza `remote.private == true` oraz obecność skonsumowanego, natywnego potwierdzenia bootstrapu Validatora. Publiczny Sorust utworzony bez tego kontrolera nie spełnia tych warunków. Nie wystarczy ponowić tego samego planu ani dopisać pozytywnego potwierdzenia.
+
+Zależność właścicielska `subactor/onedev-agent / PLF-22278` została utworzona w lokalnym backlogu przez allocator Planfile. Dotyczy dopuszczenia ograniczonej ścieżki dla dokładnie tego istniejącego, publicznego i pustego repozytorium; zachowuje ochronę prywatnego bootstrapu. Nie zmieniono runtime ani jego uprawnień. Wznowienie publikacji Sorust wymaga niezależnego opublikowania i wdrożenia tej ścieżki, a następnie rzeczywistego grantu i walidacji początkowej referencji.
