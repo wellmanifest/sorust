@@ -1,0 +1,34 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-001",
+  "summary": "Sorust dual native artifacts and reusable kernels",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-001/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    ".gitignore",
+    "CHANGELOG.md",
+    "MANIFEST.in",
+    "README.md",
+    "crates/**",
+    "docs/**",
+    "examples/**",
+    "include/**",
+    "pyproject.toml",
+    "src/**",
+    "tests/**"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null
+}
