@@ -3,7 +3,7 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 8,
+  "version": 9,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
@@ -11,7 +11,7 @@
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "29420b36642880671111b0e05b2a8998c02f23b3",
+  "source_revision": "ec05144a7aa582fc646a61b4ff78aafefb08b443",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -32,7 +32,10 @@
     "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/tests/test_build.py",
     "https://github.com/wellmanifest/sorust/blob/1fe08ce952c78506befaa2bee73691e7eb4bfaf2/src/sorust/backend.py",
     "https://github.com/wellmanifest/sorust/blob/1fe08ce952c78506befaa2bee73691e7eb4bfaf2/tests/test_build.py",
-    "https://github.com/wellmanifest/sorust/blob/29420b36642880671111b0e05b2a8998c02f23b3/tests/test_build.py"
+    "https://github.com/wellmanifest/sorust/blob/29420b36642880671111b0e05b2a8998c02f23b3/tests/test_build.py",
+    "https://github.com/wellmanifest/sorust/blob/ec05144a7aa582fc646a61b4ff78aafefb08b443/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/ec05144a7aa582fc646a61b4ff78aafefb08b443/src/sorust/__main__.py",
+    "https://github.com/wellmanifest/sorust/blob/ec05144a7aa582fc646a61b4ff78aafefb08b443/tests/test_build.py"
   ]
 }
 ---
@@ -70,6 +73,8 @@ Rozszerzenie walidacji konsumenta w źródle `29420b36642880671111b0e05b2a8998c0
 
 Osobny lokalny canary na bazie `23e6adcf2ed09803b552ad229bc0dc87cf2409eb` potwierdził rzeczywiste izolowane PEP 517: sdist → wheel z lokalnego wheelhouse przy `PIP_NO_INDEX=1`, dwa rozszerzenia Python (jedno zagnieżdżone), jedno Rust cdylib, selekcję źródeł i sumy binarek/nagłówka. Wheelhouse przygotowano wcześniej z Sorust 0.1.0, setuptools 84.2.1, wheel 0.48.0, Cython 3.3.1, build 1.6.1, packaging 26.3 i pyproject_hooks 1.3.3. Nowy venv konsumenta zawierał własny wheel bez Sorust, Cython i build; oba rozszerzenia oraz klient C linkujący zainstalowane jądro przeszły testy. Receipt: `receipt:sorust.isolated-adoption.23e6adc`; surowe logi i fixture są prywatne. To lokalny canary, nie zadeklarowana chroniona brama CI ani próba innych platform. Trwały test pytest używa `--no-isolation` z przygotowanymi zależnościami; oba rodzaje dowodów pozostają rozdzielone.
 
+Eksport binarek w źródle `ec05144a7aa582fc646a61b4ff78aafefb08b443`: dodano `export_artifacts` i CLI `python -m sorust export` dla plików wskazanych w manifeście v1. 16 nowych testów przeszło (7,31 s): rzeczywista instalacja API/CLI, dokładne bajty i sumy eksportu, załadowanie rozszerzenia w czystym venv bez Sorust/Cython, klient C linkujący wyeksportowane Rust cdylib, odmowa nadpisania ośmiu wariantów istniejącego celu, brak wyjścia dla uszkodzonego/brakującego/uciekającego źródła i powtórzonej ścieżki, ponowne sprawdzenie snapshotu oraz brak manifestu po kontrolowanym błędzie kopiowania. Istniejące testy obcych konsumentów sprawdzają również eksport pakietów pojedynczych i zagnieżdżonych przez API. Pełna walidacja: 52 testy pytest PASS (19,33 s) i 2 testy Cargo PASS. Osobny lokalny canary CLI `--package-dir` wyeksportował rzeczywisty obcy pakiet z dwoma rozszerzeniami i zgodnymi sumami; receipt `receipt:sorust.foreign-export.ec05144`. Nie dodano zależności runtime ani zmian algorytmu i ABI.
+
 <!-- docs:section content -->
 ## Content
 
@@ -84,12 +89,33 @@ Osobny lokalny canary na bazie `23e6adcf2ed09803b552ad229bc0dc87cf2409eb` potwie
 | SORUST-007 | Jedno jądro ma jednego właściciela, własną wersję i jedną odpowiedzialność. Konsumenci MUSZĄ reużywać dystrybucję zamiast kopiować implementację. |
 | SORUST-008 | Budowanie Rust używa `--release --locked --offline`. Sdist MUSI zawierać źródła, Cargo.lock i konfigurację backendu. `Cargo.lock` MUSI być zwykłym plikiem projektu, bez dowiązań także do innych plików wewnętrznych; zależności Cargo należy wcześniej dostarczyć do cache lub vendor. |
 | SORUST-009 | Adapter Python MUSI przekazać do ABI C długość rzeczywistego, niezmiennego bufora. Podklasy `bytes` w `count_ascii_tokens` normalizuje się z bufora przed obiema implementacjami; zwykłe `bytes` zachowują ścieżkę bez dodatkowej kopii w adapterze. |
+| SORUST-010 | Eksport plików z manifestu MUSI zweryfikować źródła przed utworzeniem nowego celu, zachować względne ścieżki i sumy oraz zapisać manifest po plikach. Nie wolno ponownie używać istniejącego katalogu, pliku ani dowiązania jako celu eksportu. |
 
 Pierwsze jądro `sorust-kernel` liczy tokeny bajtowe oddzielone dokładnie przez spację i bajty 9–13. Pozostałe bajty, w tym NUL i UTF-8, są nieprzezroczyste. To nie jest tokenizer modelu LLM.
 
 `count_ascii_tokens(data: bytes, backend="rust")` używa Rust. `backend="compiled-python"` jawnie wybiera rozszerzenie Cython. Obie ścieżki mają identyczną semantykę; wzorzec `.py` pozostaje w źródłach i sdist.
 
 Rust generuje również `.rlib` dla klientów używających zgodnego kompilatora i strategii panic. To opcjonalny wynik Cargo, nie przenośne ABI ani zawartość wheel-a. Współdzielenie między językami odbywa się przez `cdylib` i dołączony nagłówek.
+
+### Eksport do współdzielenia binarek
+
+Po zainstalowaniu wheel-a można uzyskać osobny katalog z rozszerzeniami CPython, Rust cdylib, nagłówkami i manifestem:
+
+```bash
+python -m sorust export ./sorust-bundle
+```
+
+```python
+from sorust import export_artifacts, verify_artifacts
+bundle = export_artifacts("./sorust-bundle-api")
+manifest = verify_artifacts(bundle)
+```
+
+Obcy pakiet z manifestem `sorust.artifacts/v1` można wskazać przez `python -m sorust export ./component-bundle --package-dir /sciezka/do/pakietu` albo `export_artifacts("./component-bundle", package_dir="/sciezka/do/pakietu")`. Ścieżka źródłowa oznacza katalog zawierający `sorust-artifacts.json`, nie całe repozytorium. Eksport nie uruchamia kompilatorów ani nie ładuje kopiowanego kodu natywnego.
+
+Rodzic celu musi istnieć, a sam cel musi być nowy. API zwraca bezwzględny `Path`, CLI wypisuje go na stdout. API zgłasza `NativeArtifactError` dla niepoprawnego źródła lub snapshotu, `FileExistsError` dla istniejącego celu i `OSError` dla błędów zapisu. CLI kończy takie błędy kodem 1; błędy składni argumentów obsługuje argparse. Puste katalogi, pliki i dowiązania również nie są nadpisywane. Kopiuje się tylko wpisy `artifacts` i `headers`; nie kopiuje się adapterów `.py`, danych pakietu ani opcjonalnego `.rlib`.
+
+Manifest zachowuje dane o ABI, platformie, SOABI i źródłach. Snapshot bajtów sprawdza się ponownie przed utworzeniem wyjścia; manifest zapisuje się po plikach. Przerwany zapis może pozostawić częściowy katalog, którego nie należy używać bez udanej weryfikacji. To nie jest atomowa publikacja całego katalogu ani gwarancja trwałości po awarii systemu. Klient C korzysta z wyeksportowanego `_native/sorust.h` i `_native/libsorust_kernel.so`. Rozszerzenie Python wymaga zgodnego CPython/ABI; gotowy wheel pozostaje standardową drogą instalacji pełnego adaptera Python.
 
 ### Adopcja konsumenta
 
@@ -158,4 +184,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Każda następna zmiana, w tym walidacja konsumenta w ticket-005, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Każda następna zmiana, w tym eksport w ticket-006, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.

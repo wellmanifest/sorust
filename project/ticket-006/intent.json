@@ -1,0 +1,111 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-006",
+  "summary": "Export verified native binary bundles for reuse",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-006/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "src/sorust/__main__.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "37c7389400d26ec504e4156a381e6c8dda2c47bf",
+    "targetBranch": "main",
+    "outcome": "Export verified manifest-listed Python extensions, Rust cdylib and headers to a fresh standalone bundle through an API and CLI; test installed consumers and independently publish/merge.",
+    "nonGoals": [
+      "Change counting, backend compilation, C ABI, dependencies or platform support.",
+      "Include optional Cargo rlib in wheel/export or promise atomic directory/crash-safe publication.",
+      "Publish to a registry, deploy, migrate consumers or edit protected policy."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 30,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 2
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Reuse verify_artifacts for current or explicitly selected package. Snapshot and recheck all listed bytes before exclusive destination mkdir; reject duplicate/reserved export paths. Copy only artifacts/headers with exclusive file creation, preserving relative paths, and write manifest last. Existing destinations are never reused; interrupted copies may leave an incomplete owned output without a completed manifest. CLI delegates to the API and reports failures with nonzero status.",
+      "components": [
+        {
+          "name": "artifact-export-runtime-cli",
+          "paths": [
+            "src/sorust/__init__.py",
+            "src/sorust/__main__.py"
+          ]
+        },
+        {
+          "name": "export-integration-tests",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "New standalone export directory reuses sorust.artifacts/v1 without schema changes."
+      ],
+      "interfaceChanges": [
+        "export_artifacts(destination, *, package_dir=None) -> Path",
+        "python -m sorust export DESTINATION [--package-dir PACKAGE]"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert through independent protected review; preserve prior dist, test receipts and every generated worktree file."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k export"
+        ],
+        "evidence": "Installed API/CLI export exact listed bytes and manifest; independent Python/C clients execute exports; existing paths and invalid source inputs fail without overwriting data or creating output for invalid source."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Full build/runtime/C/Rust/Python and foreign/nested consumer export coverage passes."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Existing canonical v9 metadata/index/tracking verified, required remote checks and independent exact-head approval/merge; release own lease and preserve generated data before cleanup."
+      }
+    ]
+  }
+}
