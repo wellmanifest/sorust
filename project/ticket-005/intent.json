@@ -1,0 +1,97 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-005",
+  "summary": "Cover multi-module native consumer distributions",
+  "workstream": "integration",
+  "classification": {
+    "kind": "SERVICE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-005/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "23e6adcf2ed09803b552ad229bc0dc87cf2409eb",
+    "targetBranch": "main",
+    "outcome": "Make single and nested multi-module native consumer distribution contracts executable in integration tests, update canonical evidence, and independently review/publish/merge.",
+    "nonGoals": [
+      "Change backend/runtime implementation, C ABI, dependency versions or supported platforms.",
+      "Publish to registries, deploy, migrate consumers or edit protected delivery policy.",
+      "Claim the isolated wheelhouse canary is an enrolled protected CI gate."
+    ],
+    "complexity": "S",
+    "estimatedMinutes": 25,
+    "budgets": {
+      "maxAffectedComponents": 2,
+      "maxImplementationFiles": 2,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 0
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Parameterize existing real foreign-consumer sdist-to-wheel integration test for one and two compiled modules including a nested package; check selective source exclusion, all artifact/header hashes, actual installed extensions and foreign Rust ABI calls. Keep isolated offline wheelhouse proof as a separate controlled local canary.",
+      "components": [
+        {
+          "name": "consumer-integration-tests",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert test/documentation change through independent protected review; retain raw canary/test receipts."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k external_consumer_build_backend"
+        ],
+        "evidence": "Both single and nested two-module foreign sdists produce installable wheels, selected modules are native without source copies, unselected source remains; all manifest/header hashes match and foreign Rust ABI executes."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Full existing source, build, runtime, C/Rust/Python consumer and negative regressions remain green."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Existing indexed canonical standard has exact-source metadata; local gates, required remote checks, independent approval/merge and released owned-worktree cleanup verified."
+      }
+    ]
+  }
+}

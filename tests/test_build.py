@@ -275,7 +275,8 @@ def count_prompt_tokens(prompt: str) -> int:
     run([python, "-I", "-c", 'from nl_sorust_example import count_prompt_tokens; assert count_prompt_tokens("one two") == 2'])
 
 
-def test_external_consumer_build_backend(built, tmp_path):
+@pytest.mark.parametrize("layout", ["single", "nested"])
+def test_external_consumer_build_backend(built, tmp_path, layout):
     _, wheel, python, _ = built
     run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
     project = tmp_path / "external"
@@ -283,13 +284,23 @@ def test_external_consumer_build_backend(built, tmp_path):
     package.mkdir(parents=True)
     (package / "__init__.py").write_text("")
     (package / "_compat.py").write_text("def double(value):\n    return value * 2\n")
+    (package / "untouched.py").write_text("def identity(value):\n    return value\n")
+    modules = ["nl_atomic_example._compat"]
+    if layout == "nested":
+        (package / "nested").mkdir()
+        (package / "nested/__init__.py").write_text("")
+        (package / "nested/_fast.py").write_text("def triple(value):\n    return value * 3\n")
+        modules.append("nl_atomic_example.nested._fast")
     text = (ROOT / "pyproject.toml").read_text()
     text = text.replace('build-backend = "sorust.backend"\nbackend-path = ["src"]', 'build-backend = "sorust.backend"')
     text = text.replace('"setuptools>=77", "wheel>=0.45", "Cython>=3,<4"', '"sorust[build]==0.1.0", "setuptools>=77", "wheel>=0.45", "Cython>=3,<4"', 1)
     text = text.replace('name = "sorust"', 'name = "nl-atomic-example"').replace('readme = "README.md"\n', '')
     text = text.replace('sorust._compat', 'nl_atomic_example._compat').replace('artifact-package = "sorust"', 'artifact-package = "nl_atomic_example"')
+    text = text.replace('python-modules = ["nl_atomic_example._compat"]',
+                        "python-modules = " + json.dumps(modules))
     (project / "pyproject.toml").write_text(text)
     shutil.copytree(ROOT / "crates", project / "crates", ignore=shutil.ignore_patterns("target"))
+    shutil.copytree(ROOT / "include", project / "include")
     shutil.copyfile(ROOT / "MANIFEST.in", project / "MANIFEST.in")
     output = tmp_path / "external-dist"
     run([sys.executable, "-I", "-m", "build", "--no-isolation", "--outdir", output, project])
@@ -297,13 +308,41 @@ def test_external_consumer_build_backend(built, tmp_path):
         names = archive.namelist()
         assert any(x.startswith("nl_atomic_example/_compat.") and x.endswith(".so") for x in names)
         assert any(x.startswith("nl_atomic_example/_native/") and x.endswith(".so") for x in names)
+        assert "nl_atomic_example/untouched.py" in names
+        for name in modules:
+            assert name.replace(".", "/") + ".py" not in names
+        manifest = json.loads(archive.read("nl_atomic_example/sorust-artifacts.json"))
+        assert manifest["package"] == "nl_atomic_example"
+        assert sum(item["kind"] == "python-extension" for item in manifest["artifacts"]) == len(modules)
+        assert sum(item["kind"] == "rust-cdylib" for item in manifest["artifacts"]) == 1
+        assert [item["path"] for item in manifest["headers"]] == ["_native/sorust.h"]
+        for item in manifest["artifacts"] + manifest["headers"]:
+            assert hashlib.sha256(archive.read("nl_atomic_example/" + item["path"])).hexdigest() == item["sha256"]
     run([python, "-I", "-m", "pip", "install", "--no-deps", next(output.glob("*.whl"))])
     run([python, "-I", "-c", '''
-from nl_atomic_example import _compat
-import importlib.machinery
+from nl_atomic_example import _compat, untouched
+import ctypes, importlib.machinery, json, sys
+from pathlib import Path
 assert any(_compat.__file__.endswith(x) for x in importlib.machinery.EXTENSION_SUFFIXES)
 assert _compat.double(21) == 42
-'''])
+assert untouched.identity("value") == "value"
+if sys.argv[1] == "nested":
+    from nl_atomic_example.nested import _fast
+    assert any(_fast.__file__.endswith(x) for x in importlib.machinery.EXTENSION_SUFFIXES)
+    assert _fast.triple(14) == 42
+package = Path(_compat.__file__).parent
+manifest = json.loads((package / "sorust-artifacts.json").read_text())
+item = next(item for item in manifest["artifacts"] if item["kind"] == "rust-cdylib")
+library = ctypes.CDLL(str(package / item["path"]))
+library.sorust_abi_version.argtypes = []
+library.sorust_abi_version.restype = ctypes.c_uint32
+assert library.sorust_abi_version() == 1
+count = library.sorust_count_ascii_tokens_v1
+count.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
+count.restype = ctypes.c_int32
+output = ctypes.c_uint64()
+assert count(b"one two", 7, ctypes.byref(output)) == 0 and output.value == 2
+''', layout])
 
 
 import importlib.util
