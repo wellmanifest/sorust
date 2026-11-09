@@ -69,7 +69,6 @@
             "pyproject.toml",
             "MANIFEST.in",
             ".gitignore",
-            "README.md",
             "CHANGELOG.md"
           ]
         },
