@@ -1,0 +1,103 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-002",
+  "summary": "Bind compiled Python imports to verified manifest artifacts",
+  "workstream": "integration",
+  "classification": {
+    "kind": "BUG",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-002/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "4d3d97226fc8b29fb84ea8b61f42443d86cc2faa",
+    "targetBranch": "main",
+    "outcome": "Bind compiled-Python runtime import to the actual verified native manifest entry before loading; reject missing/unlisted/source fallback modules, preserve native semantics, add regressions and update the canonical standard. Publish and independently merge this exact bounded correction under repeated user request.",
+    "nonGoals": [
+      "Change C ABI, Rust semantics, build schema, dependency pins or protected governance/Validator policy.",
+      "Release to registries, add platforms or migrate existing consumers."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 25,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 0
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Use public importlib module discovery before import, require the chosen ExtensionFileLoader origin to correspond to an already hash-verified python-extension entry, then verify imported module origin. Reuse the manifest verifier and retain runtime API and fail-closed behavior.",
+      "components": [
+        {
+          "name": "runtime",
+          "paths": [
+            "src/sorust/__init__.py"
+          ]
+        },
+        {
+          "name": "regressions",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert this bounded runtime correction through a separately reviewed protected PR; preserve reproduced failure and completed validation receipts."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k compiled_import"
+        ],
+        "evidence": "Installed wheel baseline reproduction executes an unlisted native extension despite valid listed hashes. Regressions reject native/source/missing/preloaded selected modules before unexpected execution."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Full real build/install and C/Rust/Python clients remain valid."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "protected Validator exact-head publication"
+        ],
+        "evidence": "Canonical standard version/source/index/tracking correct; required governance checks and independent exact-head Validator approval/merge required."
+      }
+    ]
+  }
+}
