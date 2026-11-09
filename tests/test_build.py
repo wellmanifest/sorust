@@ -318,7 +318,7 @@ def test_external_consumer_build_backend(built, tmp_path, layout):
         assert [item["path"] for item in manifest["headers"]] == ["_native/sorust.h"]
         for item in manifest["artifacts"] + manifest["headers"]:
             assert hashlib.sha256(archive.read("nl_atomic_example/" + item["path"])).hexdigest() == item["sha256"]
-    run([python, "-I", "-m", "pip", "install", "--no-deps", next(output.glob("*.whl"))])
+    run([python, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", next(output.glob("*.whl"))])
     run([python, "-I", "-c", '''
 from nl_atomic_example import _compat, untouched
 import ctypes, importlib.machinery, json, sys
