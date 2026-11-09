@@ -3,15 +3,15 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 6,
+  "version": 7,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "scope": "repository",
   "created": "2026-11-09",
-  "updated": "2026-11-09",
+  "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "d6917eb2c4097ac364a4e51bbebefcb9ac134b56",
+  "source_revision": "1fe08ce952c78506befaa2bee73691e7eb4bfaf2",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -29,7 +29,9 @@
     "https://github.com/wellmanifest/sorust/blob/ccfdcdcbe3f712950da3ae2672a8ed912626d752/tests/test_build.py",
     "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/src/sorust/__init__.py",
     "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/src/sorust/_compat.py",
-    "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/tests/test_build.py"
+    "https://github.com/wellmanifest/sorust/blob/d6917eb2c4097ac364a4e51bbebefcb9ac134b56/tests/test_build.py",
+    "https://github.com/wellmanifest/sorust/blob/1fe08ce952c78506befaa2bee73691e7eb4bfaf2/src/sorust/backend.py",
+    "https://github.com/wellmanifest/sorust/blob/1fe08ce952c78506befaa2bee73691e7eb4bfaf2/tests/test_build.py"
   ]
 }
 ---
@@ -61,6 +63,8 @@ Korekta wiązania importu w źródle `ccfdcdcbe3f712950da3ae2672a8ed912626d752`:
 
 Korekta bufora w źródle `d6917eb2c4097ac364a4e51bbebefcb9ac134b56`: na bazie `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` stub Python zarejestrował długość 1024 dla rzeczywistego bufora 7 bajtów podklasy `bytes`; funkcji natywnej nie uruchamiano z tą długością. Zwykła podklasa dawała też Rust=2 i TypeError w compiled-python. Runtime i wzorzec Python normalizują teraz podklasy przez eksportowany bufor do niezmiennych `bytes`. Metody `__len__`, `__iter__`, `__bytes__` nie wyznaczają danych ani długości FFI. Zwykłe `bytes` zachowują ten sam obiekt bez dodatkowej kopii w adapterze. Siedem nowych testów zakończyło się PASS: bezpieczny stub nadmiernej długości, zachowanie tożsamości zwykłych bajtów oraz pięć wariantów zgodności wzorca, Rust i compiled-python. Test natywny nadpisanej długości używa wartości 0, aby również na błędnej bazie nie wykonywać odczytu poza buforem. Pełna walidacja korekty: 32 testy pytest PASS (17,51 s) i 2 testy Cargo PASS; ABI C i algorytm Rust zachowano.
 
+Korekta wejścia blokady w źródle `1fe08ce952c78506befaa2bee73691e7eb4bfaf2`: baza `b0e9c9c13ce1e72476ce851b557189655e59dda3` akceptowała dowiązanie `Cargo.lock` poza projekt, a zmiana wyłącznie kontrolowanego pliku docelowego zmieniała digest źródeł. Odtworzenie nie uruchamiało Cargo ani skryptów budowania. Backend stosuje teraz istniejącą kontrolę zwykłego pliku, dowiązań i położenia także do `Cargo.lock`. Odrzuca dowiązania zarówno zewnętrzne, jak i wewnętrzne; zachowuje komunikat dla brakującej blokady. Trzy regresje zakończyły się PASS przez konfigurację i rzeczywiste wejście PEP 517 sdist, przed generowaniem C przez Cython i bez utworzenia sdist. Kontrola dotyczy jawnego wejścia blokady; nie stanowi ogólnego sandboxa Cargo. Pełna walidacja korekty: 35 testów pytest PASS (29,54 s) i 2 testy Cargo PASS; zwykłe pliki blokady zachowują dotychczasowy sposób budowania.
+
 <!-- docs:section content -->
 ## Content
 
@@ -73,7 +77,7 @@ Korekta bufora w źródle `d6917eb2c4097ac364a4e51bbebefcb9ac134b56`: na bazie `
 | SORUST-005 | Produkcja MUSI jawnie używać natywnego backendu. Wybrane do importu rozszerzenie CPython MUSI odpowiadać zweryfikowanemu wpisowi `python-extension` przed jego załadowaniem; brak, nieujęty plik, źródło `.py`, rozbieżna suma lub ABI zatrzymują wywołanie. |
 | SORUST-006 | Zmiana jądra MUSI przejść testy różnicowe względem zaakceptowanej semantyki oraz pomiar reprezentatywnych rozmiarów. Migracja kolejnych bottlenecków wymaga profilowania. |
 | SORUST-007 | Jedno jądro ma jednego właściciela, własną wersję i jedną odpowiedzialność. Konsumenci MUSZĄ reużywać dystrybucję zamiast kopiować implementację. |
-| SORUST-008 | Budowanie Rust używa `--release --locked --offline`. Sdist MUSI zawierać źródła, Cargo.lock i konfigurację backendu; zależności Cargo należy wcześniej dostarczyć do cache lub vendor. |
+| SORUST-008 | Budowanie Rust używa `--release --locked --offline`. Sdist MUSI zawierać źródła, Cargo.lock i konfigurację backendu. `Cargo.lock` MUSI być zwykłym plikiem projektu, bez dowiązań także do innych plików wewnętrznych; zależności Cargo należy wcześniej dostarczyć do cache lub vendor. |
 | SORUST-009 | Adapter Python MUSI przekazać do ABI C długość rzeczywistego, niezmiennego bufora. Podklasy `bytes` w `count_ascii_tokens` normalizuje się z bufora przed obiema implementacjami; zwykłe `bytes` zachowują ścieżkę bez dodatkowej kopii w adapterze. |
 
 Pierwsze jądro `sorust-kernel` liczy tokeny bajtowe oddzielone dokładnie przez spację i bajty 9–13. Pozostałe bajty, w tym NUL i UTF-8, są nieprzezroczyste. To nie jest tokenizer modelu LLM.
@@ -147,4 +151,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekta ticket-002 podlega własnym bramom i niezależnemu zatwierdzeniu aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Każda następna korekta, w tym ticket-004, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.

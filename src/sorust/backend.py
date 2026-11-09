@@ -34,14 +34,15 @@ def configuration(root: Path) -> dict:
     manifest = Path(config["rust-manifest"])
     if manifest.is_absolute() or ".." in manifest.parts:
         raise ValueError("Rust manifest must remain inside the project")
-    paths = [manifest, *(Path("src", *x.split(".")).with_suffix(".py") for x in modules)]
+    lockfile = manifest.parent / "Cargo.lock"
+    paths = [manifest, *(Path("src", *x.split(".")).with_suffix(".py") for x in modules), lockfile]
     for path in paths:
         full = root / path
+        if path == lockfile and not full.is_file():
+            raise ValueError("Rust component requires a committed Cargo.lock")
         if (not full.is_file() or any(p.is_symlink() for p in [full, *full.parents])
                 or not full.resolve().is_relative_to(root.resolve())):
             raise ValueError(f"missing or unsafe source: {path}")
-    if not (root / manifest.parent / "Cargo.lock").is_file():
-        raise ValueError("Rust component requires a committed Cargo.lock")
     return config
 
 
