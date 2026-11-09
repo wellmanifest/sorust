@@ -114,6 +114,158 @@ else: raise AssertionError("loaded incompatible library accepted")
 ''', tmp_path])
 
 
+@pytest.mark.parametrize("entrypoint", ["api", "cli"])
+def test_installed_export_has_standalone_native_consumers(built, tmp_path, entrypoint):
+    _, _, python, package = built
+    destination = tmp_path / "bundle"
+    if entrypoint == "api":
+        output = run([python, "-I", "-c", '''
+import sys, sorust
+print(sorust.export_artifacts(sys.argv[1], package_dir=sys.argv[2]))
+''', destination, package])
+    else:
+        output = run([python, "-I", "-m", "sorust", "export", destination])
+    assert Path(output.strip()) == destination
+    manifest = json.loads((package / "sorust-artifacts.json").read_text())
+    assert json.loads((destination / "sorust-artifacts.json").read_text()) == manifest
+    expected = {"sorust-artifacts.json"}
+    for item in manifest["artifacts"] + manifest["headers"]:
+        expected.add(item["path"])
+        data = (destination / item["path"]).read_bytes()
+        assert data == (package / item["path"]).read_bytes()
+        assert hashlib.sha256(data).hexdigest() == item["sha256"]
+    assert {path.relative_to(destination).as_posix() for path in destination.rglob("*")
+            if path.is_file()} == expected
+    extension = destination / next(item["path"] for item in manifest["artifacts"]
+                                   if item["kind"] == "python-extension")
+    runtime = tmp_path / "standalone"
+    venv.EnvBuilder(with_pip=False).create(runtime)
+    run([runtime / "bin/python", "-I", "-c", '''
+import importlib.util, sys
+assert importlib.util.find_spec("sorust") is None
+assert importlib.util.find_spec("Cython") is None
+spec = importlib.util.spec_from_file_location("_compat", sys.argv[1])
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+assert module.count_ascii_tokens(b"one two") == 2
+''', extension])
+    library = destination / next(item["path"] for item in manifest["artifacts"]
+                                 if item["kind"] == "rust-cdylib")
+    source = tmp_path / "export-client.c"
+    source.write_text('''#include "sorust.h"
+int main(void) { uint64_t n=0; const uint8_t text[]="one two\\tthree";
+return !(sorust_abi_version()==1 && sorust_count_ascii_tokens_v1(text, sizeof(text)-1, &n)==0 && n==3); }
+''')
+    binary = tmp_path / "export-client"
+    run(["cc", source, "-I", destination / "_native", library,
+         "-Wl,-rpath," + str(library.parent), "-o", binary])
+    run([binary])
+
+
+@pytest.mark.parametrize("entrypoint", ["api", "cli"])
+@pytest.mark.parametrize("kind", ["empty", "populated", "file", "symlink"])
+def test_export_preserves_existing_destination(built, tmp_path, entrypoint, kind):
+    _, _, python, _ = built
+    destination = tmp_path / "occupied"
+    if kind == "file":
+        destination.write_bytes(b"keep")
+    elif kind == "symlink":
+        actual = tmp_path / "actual"
+        actual.mkdir()
+        (actual / "keep").write_bytes(b"keep")
+        destination.symlink_to(actual, target_is_directory=True)
+    else:
+        destination.mkdir()
+        if kind == "populated":
+            (destination / "keep").write_bytes(b"keep")
+    if entrypoint == "api":
+        run([python, "-I", "-c", '''
+import sorust, sys
+try: sorust.export_artifacts(sys.argv[1])
+except FileExistsError: pass
+else: raise AssertionError("existing destination reused")
+''', destination])
+    else:
+        result = subprocess.run([python, "-I", "-m", "sorust", "export", destination],
+                                text=True, capture_output=True, timeout=30)
+        assert result.returncode == 1 and "sorust:" in result.stderr
+        assert not result.stdout and "Traceback" not in result.stderr
+    if kind == "file":
+        assert destination.read_bytes() == b"keep"
+    else:
+        assert sorted(path.name for path in destination.iterdir()) == ([] if kind == "empty" else ["keep"])
+        if kind != "empty":
+            assert (destination / "keep").read_bytes() == b"keep"
+        if kind == "symlink":
+            assert destination.is_symlink() and destination.readlink() == actual
+
+
+@pytest.mark.parametrize("case", ["missing", "corrupt", "escape", "duplicate"])
+def test_export_rejects_invalid_source_before_output(built, tmp_path, case):
+    _, _, python, package = built
+    clone = tmp_path / "source"
+    shutil.copytree(package, clone)
+    manifest_path = clone / "sorust-artifacts.json"
+    manifest = json.loads(manifest_path.read_text())
+    item = manifest["artifacts"][0]
+    if case == "missing":
+        (clone / item["path"]).unlink()
+    elif case == "corrupt":
+        (clone / item["path"]).write_bytes(b"corrupt")
+    elif case == "escape":
+        item["path"] = "../outside.so"
+    else:
+        manifest["headers"].append(dict(item))
+    manifest_path.write_text(json.dumps(manifest))
+    destination = tmp_path / "bundle"
+    run([python, "-I", "-c", '''
+import sys, sorust
+try: sorust.export_artifacts(sys.argv[1], package_dir=sys.argv[2])
+except sorust.NativeArtifactError: pass
+else: raise AssertionError("invalid export source accepted")
+''', destination, clone])
+    assert not destination.exists()
+
+
+def test_export_rechecks_snapshot_before_output(built, tmp_path, monkeypatch):
+    import sorust
+    clone = tmp_path / "source"
+    shutil.copytree(built[3], clone)
+    original = sorust.verify_artifacts
+
+    def change_after_verification(root):
+        manifest = original(root)
+        path = clone / manifest["artifacts"][0]["path"]
+        path.write_bytes(path.read_bytes() + b"changed")
+        return manifest
+
+    monkeypatch.setattr(sorust, "verify_artifacts", change_after_verification)
+    destination = tmp_path / "bundle"
+    with pytest.raises(sorust.NativeArtifactError, match="changed before export"):
+        sorust.export_artifacts(destination, package_dir=clone)
+    assert not destination.exists()
+
+
+def test_export_interrupted_copy_has_no_completion_manifest(built, tmp_path, monkeypatch):
+    import sorust
+    manifest = sorust.verify_artifacts(built[3])
+    destination = tmp_path / "bundle"
+    library = destination / next(item["path"] for item in manifest["artifacts"]
+                                 if item["kind"] == "rust-cdylib")
+    original = Path.open
+
+    def fail_copy(path, mode="r", *args, **kwargs):
+        if path == library and mode == "xb":
+            raise OSError("controlled write failure")
+        return original(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_copy)
+    with pytest.raises(OSError, match="controlled write failure"):
+        sorust.export_artifacts(destination, package_dir=built[3])
+    assert destination.is_dir()
+    assert not (destination / "sorust-artifacts.json").exists()
+
+
 def test_sdist_has_native_sources(built):
     output, _, _, _ = built
     with tarfile.open(next(output.glob("*.tar.gz"))) as archive:
@@ -342,7 +494,11 @@ count.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint
 count.restype = ctypes.c_int32
 output = ctypes.c_uint64()
 assert count(b"one two", 7, ctypes.byref(output)) == 0 and output.value == 2
-''', layout])
+from sorust import export_artifacts, verify_artifacts
+exported = export_artifacts(sys.argv[2], package_dir=package)
+assert verify_artifacts(exported) == manifest
+assert not list(exported.rglob("*.py"))
+''', layout, tmp_path / "foreign-export"])
 
 
 import importlib.util

@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 
 __version__ = "0.1.0"
-__all__ = ["count_ascii_tokens", "verify_artifacts", "NativeArtifactError"]
+__all__ = ["count_ascii_tokens", "verify_artifacts", "export_artifacts", "NativeArtifactError"]
 
 
 class NativeArtifactError(RuntimeError):
@@ -42,6 +42,39 @@ def verify_artifacts(package_dir: str | Path | None = None) -> dict:
         return manifest
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise NativeArtifactError(f"Invalid Sorust artifacts: {error}") from error
+
+
+def export_artifacts(destination: str | Path, *, package_dir: str | Path | None = None) -> Path:
+    """Copy verified native files to a new directory, writing the manifest last.
+
+    The destination's parent must exist. Existing destinations are never reused.
+    A failed copy can leave an incomplete output; no compiler or loader runs.
+    """
+    root = Path(package_dir) if package_dir is not None else Path(__file__).parent
+    manifest = verify_artifacts(root)
+    payload = {}
+    for item in manifest["artifacts"] + manifest.get("headers", []):
+        relative = Path(item["path"])
+        if relative in payload or relative == Path("sorust-artifacts.json"):
+            raise NativeArtifactError(f"Conflicting export path: {relative}")
+        try:
+            data = (root / relative).read_bytes()
+        except OSError as error:
+            raise NativeArtifactError(f"Cannot snapshot artifact: {relative}") from error
+        if hashlib.sha256(data).hexdigest() != item["sha256"]:
+            raise NativeArtifactError(f"Artifact changed before export: {relative}")
+        payload[relative] = data
+    manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode()
+    target = Path(destination)
+    target.mkdir()
+    for relative, data in payload.items():
+        path = target / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("xb") as output:
+            output.write(data)
+    with (target / "sorust-artifacts.json").open("xb") as output:
+        output.write(manifest_bytes)
+    return target.resolve()
 
 
 @lru_cache(maxsize=1)
