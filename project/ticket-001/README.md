@@ -16,6 +16,6 @@ SESSION_EXECUTION_AUTHORIZATION: user requests a new sorust Python library and s
 - AC-02: Validate Python/Rust parity, C ABI reuse and rejection of missing, corrupt or incompatible artifacts.
 - AC-03: Deliver an indexed canonical standard and consumer example, run local governance and report commit/PR/merge separately.
 
-- AC-04: Publish through the declared independent route after a protected initial-ref publisher creates the empty remote main baseline. Current blocker: GOV-PUSH-001 and missing independent exact-plan grant.
+- AC-04: Publish through the declared independent route after a protected initial-ref publisher creates the empty remote main baseline. Publisher published the exact seed and independent Validator emitted accepted receipt in run42702186932. GitHub attestation persistence is unavailable; authenticated immutable artifact digest and this gap are documented. Feature PR retains independent protected approval and merge.
 
 Canonical result: [Sorust binary standard](../../docs/information/sorust-binary-standard.md).

@@ -3,15 +3,15 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 3,
+  "version": 4,
   "title": "Sorust 0.1: standard dwóch artefaktów",
-  "status": "draft",
+  "status": "implemented",
   "owner": "wellmanifest/sorust",
   "scope": "repository",
   "created": "2026-11-09",
   "updated": "2026-11-09",
   "review_after": "2027-02-09",
-  "source_revision": "16e3f1e907fa406277cc4bd27931ebedc1339c43",
+  "source_revision": "e8ded8f5dcf674c966e5ccda19db7f4a4836e063",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -21,7 +21,10 @@
     "repo://wellmanifest/sorust/crates/sorust-kernel/src/lib.rs",
     "https://github.com/wellmanifest/sorust",
     "receipt:sorust-initial-ref-plan.7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045",
-    "https://github.com/subactor/onedev-agent/blob/8ac2658e3fcd7d2df3375a8ece8bbe775329da9b/packages/diagit-control/onedev_diagit_control/initial_ref.py"
+    "https://github.com/subactor/onedev-agent/pull/934",
+    "https://github.com/subactor/onedev-agent/pull/935",
+    "https://github.com/subactor/validator-agent/actions/runs/42702186932",
+    "receipt:initial-ref-accepted-f6be13bd4201f3ddb46a433f"
   ]
 }
 ---
@@ -31,7 +34,7 @@
 <!-- docs:section purpose -->
 ## Purpose
 
-Sorust dostarcza wspólny kontrakt budowania dla bibliotek Wellmanifest `nl-*`: pozostały Python jako importowalne rozszerzenia oraz wydzielone, atomowe jądra Rust. Wersja 0.1 jest implementacją lokalną, bez publikacji w rejestrze i bez migracji istniejących repozytoriów.
+Sorust dostarcza wspólny kontrakt budowania dla bibliotek Wellmanifest `nl-*`: pozostały Python jako importowalne rozszerzenia oraz wydzielone, atomowe jądra Rust. Wersja 0.1 jest zbudowaną i przetestowaną implementacją referencyjną. Publikacja źródeł przechodzi chroniony PR; wydanie w rejestrze i migracje konsumentów pozostają osobnymi zadaniami.
 
 <!-- docs:section scope -->
 ## Scope
@@ -120,7 +123,11 @@ Konsumenci gotowego wheel-a nie potrzebują Rust ani Cython. Klient C korzysta z
 <!-- docs:section limitations -->
 ## Limitations
 
-Walidacja obejmuje Linux x86_64 i CPython 3.13. Repozytorium `wellmanifest/sorust` istnieje na GitHubie i ma skonfigurowany origin, lecz nadal nie ma żadnej zdalnej gałęzi. Hook odrzucił pierwsze wypchnięcie `main` kodem GOV-PUSH-001. PR i merge czekają na chronioną inicjalizację pierwszej referencji; hooków nie wyłączono. Profil Validatora dopuszcza repo i wymaga `governance / enforce` oraz `governance / remote lifecycle`, ale konfiguracja nie stanowi dowodu ich wykonania. Pełna adopcja chronionej bramy Docs nie jest skonfigurowana; układ, metadane i indeks kontroluje się lokalnie. Zarządzany checkpoint v2 działa po dodaniu origin. Brak canary manylinux, macOS, Windows, innych interpreterów oraz porównania na rzeczywistych zadaniach `nl-*`. Suma kontrolna wykrywa drift, nie uwierzytelnia wydawcy; zaufanie do wheel-a wymaga oddzielnej proweniencji. Ładowanie i import są buforowane w procesie. Cython nie gwarantuje przyspieszenia dowolnego kodu Python ani obsługi każdej dynamicznej konstrukcji. Nie deklarujemy bitowej odtwarzalności między hostami.
+Walidacja obejmuje Linux x86_64 i CPython 3.13. Chroniony Publisher opublikował wyłącznie seed governance `ea1bf67895e4ca2abda99d44fc8a538b01470350` na `main`. Niezależny Validator w uruchomieniu [42702186932](https://github.com/subactor/validator-agent/actions/runs/42702186932) potwierdził wszystkie 138 plików, dokładny zestaw refów i digest drzewa. Receipt `receipt:initial-ref-accepted-f6be13bd4201f3ddb46a433f` ma wynik `accepted`; źródło workflow: `9c964d217274233ef9e4ec5f3113859498f8b045`.
+
+Sam etap walidacji zakończył się sukcesem. Cały workflow ma wynik `failure`, ponieważ GitHub odrzucił zapis obu attestation dla prywatnego repozytorium w obecnym planie organizacji. Dowód odebrano z uwierzytelnionego, niezmiennego artefaktu GitHub nr `13713060849`; SHA-256 archiwum `4e0b004a1d5c550bd770cba099285d994e1bf6dba1f2f400e9d0fc36fde2fa1f` zgadza się z metadanymi API. To transport artefaktu workflow; podpisana attestation nie jest dostępna. Chroniony Validator zachowuje odpowiedzialność za niezależną decyzję o scaleniu PR implementacji.
+
+Profil przeglądu Sorust wymaga `governance / enforce` i `governance / remote lifecycle`. Ich wykonanie oraz zatwierdzenie muszą dotyczyć aktualnego HEAD PR. Pełna adopcja chronionej bramy Docs nie jest skonfigurowana; układ, metadane i indeks kontroluje się lokalnie. Brak canary manylinux, macOS, Windows, innych interpreterów oraz porównania na rzeczywistych zadaniach `nl-*`. Suma kontrolna wykrywa drift, nie uwierzytelnia wydawcy; zaufanie do wheel-a wymaga oddzielnej proweniencji. Ładowanie i import są buforowane w procesie. Cython nie gwarantuje przyspieszenia dowolnego kodu Python ani obsługi każdej dynamicznej konstrukcji. Nie deklarujemy bitowej odtwarzalności między hostami.
 
 <!-- docs:section next_actions -->
 ## Next Actions
@@ -128,9 +135,6 @@ Walidacja obejmuje Linux x86_64 i CPython 3.13. Repozytorium `wellmanifest/sorus
 Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają testy zgodności i adoptują wydany pakiet zgodnie z instrukcją adopcji powyżej. Zmiany ABI wymagają nowego numeru ABI i jawnej migracji. Chroniona publikacja i macierz platform pozostają oddzielnymi krokami przed szeroką adopcją.
 
 
-Chroniona inicjalizacja musi opublikować wyłącznie bazę governance `ea1bf67895e4ca2abda99d44fc8a538b01470350`, z pełną allowlistą 138 plików. Plan `initial-ref-aa50fb9513cfd8d684c0d3d8` ma digest `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`. Brakuje świeżego jednorazowego grant-binding od niezależnego issuera oraz uruchomienia chronionego Publishera. Po niezależnej walidacji początkowej referencji należy wysłać gałąź ticket-001, otworzyć PR i uzyskać zatwierdzenie oraz merge Validatora. Plan jest propozycją, nie grantem ani zgodą na bezpośrednią zmianę main.
+Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-
-Ustalona przyczyna niedostępności grantu: opublikowany issuer OneDev w rewizji `8ac2658e3fcd7d2df3375a8ece8bbe775329da9b` sprawdza `remote.private == true` oraz obecność skonsumowanego, natywnego potwierdzenia bootstrapu Validatora. Publiczny Sorust utworzony bez tego kontrolera nie spełnia tych warunków. Nie wystarczy ponowić tego samego planu ani dopisać pozytywnego potwierdzenia.
-
-Zależność właścicielska `subactor/onedev-agent / PLF-22278` została utworzona w lokalnym backlogu przez allocator Planfile. Dotyczy dopuszczenia ograniczonej ścieżki dla dokładnie tego istniejącego, publicznego i pustego repozytorium; zachowuje ochronę prywatnego bootstrapu. Nie zmieniono runtime ani jego uprawnień. Wznowienie publikacji Sorust wymaga niezależnego opublikowania i wdrożenia tej ścieżki, a następnie rzeczywistego grantu i walidacji początkowej referencji.
+Kolejny krok publikacji źródeł: PR ticket-001 na bazie tego seeda, wymagane bramy dla aktualnego HEAD oraz niezależne zatwierdzenie i merge Validatora. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
