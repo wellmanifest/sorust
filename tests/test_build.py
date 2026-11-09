@@ -344,6 +344,38 @@ def test_manifest_escape_rejected(tmp_path, change):
         configuration(tmp_path)
 
 
+@pytest.mark.parametrize("target_location", ["inside", "outside", "missing"])
+def test_lockfile_rejected_before_build(tmp_path, target_location):
+    project = tmp_path / "project"
+    project.mkdir()
+    for name in ["pyproject.toml", "README.md", "VERSION", "MANIFEST.in"]:
+        shutil.copyfile(ROOT / name, project / name)
+    for name in ["src", "crates", "include"]:
+        shutil.copytree(ROOT / name, project / name,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.egg-info", "target"))
+    lockfile = project / "crates/sorust-kernel/Cargo.lock"
+    content = lockfile.read_bytes()
+    lockfile.unlink()
+    if target_location != "missing":
+        target = (project if target_location == "inside" else tmp_path) / "saved.lock"
+        target.write_bytes(content)
+        lockfile.symlink_to(target)
+    diagnostic = "committed Cargo.lock" if target_location == "missing" else "Cargo.lock"
+    with pytest.raises(ValueError, match=diagnostic):
+        configuration(project)
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    output = tmp_path / "dist"
+    result = subprocess.run(
+        [sys.executable, "-I", "-m", "build", "--sdist", "--no-isolation",
+         "--outdir", str(output), str(project)],
+        cwd=project, env=environment, text=True, capture_output=True, timeout=180)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert diagnostic in result.stdout + result.stderr
+    assert not list(project.glob("build/cython/**/*.c"))
+    assert not list(output.glob("*.tar.gz"))
+
+
 def test_missing_artifact_rejected(tmp_path):
     (tmp_path / "sorust-artifacts.json").write_text(json.dumps({
         "schema": "sorust.artifacts/v1", "abi_version": 1,

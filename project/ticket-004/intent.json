@@ -1,0 +1,104 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-004",
+  "summary": "Validate Cargo.lock as a regular project build input",
+  "workstream": "integration",
+  "classification": {
+    "kind": "BUG",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-004/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/backend.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "b0e9c9c13ce1e72476ce851b557189655e59dda3",
+    "targetBranch": "main",
+    "outcome": "Validate Cargo.lock with the same regular-file/no-symlink/containment checks as the explicit manifest/Python source inputs, preserve missing-lock diagnostic, add configuration and PEP517 rejection regressions, update canonical standard, and independently publish/merge.",
+    "nonGoals": [
+      "Change runtime behavior, C ABI, Rust algorithm, dependency pins or protected delivery policy.",
+      "Implement a general Cargo sandbox or complete analysis of arbitrary build-script/includes/dependency graphs.",
+      "Publish to registries, add platforms or migrate consumers."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 25,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 0
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Append the derived Cargo.lock path to the existing source-path validation loop; keep its explicit missing-file diagnostic. Both internal and external lock symlinks are rejected consistently with other declared inputs. Tests invoke configuration and a real PEP517 sdist subprocess, before Cython source generation.",
+      "components": [
+        {
+          "name": "backend-path-validation",
+          "paths": [
+            "src/sorust/backend.py"
+          ]
+        },
+        {
+          "name": "regressions",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert through independent protected review; retain controlled external-lock reproduction and safe receipts."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k lockfile_rejected"
+        ],
+        "evidence": "Internal/external symlink and missing-lock fixtures fail configuration and the real sdist entrypoint with the expected Cargo.lock diagnostic before Cython source generation."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Regular-file wheel/sdist, ABI/integrity and C/Rust/Python consumer tests remain valid."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Canonical standard metadata/source/index/tracking, required governance checks and independent exact-head approval/merge govern delivery."
+      }
+    ]
+  }
+}
