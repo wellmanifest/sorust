@@ -3,7 +3,7 @@
 - **ID**: ticket-002
 - **Owner**: unresolved:human
 - **Status**: IN_PROGRESS
-- **Workflow state**: EDIT
+- **Workflow state**: PUBLICATION
 - **Created**: 2026-11-09
 
 ## Goal and scope

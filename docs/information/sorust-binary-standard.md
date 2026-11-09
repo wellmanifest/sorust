@@ -3,7 +3,7 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 4,
+  "version": 5,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
@@ -11,7 +11,7 @@
   "created": "2026-11-09",
   "updated": "2026-11-09",
   "review_after": "2027-02-09",
-  "source_revision": "e8ded8f5dcf674c966e5ccda19db7f4a4836e063",
+  "source_revision": "ccfdcdcbe3f712950da3ae2672a8ed912626d752",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -24,7 +24,9 @@
     "https://github.com/subactor/onedev-agent/pull/934",
     "https://github.com/subactor/onedev-agent/pull/935",
     "https://github.com/subactor/validator-agent/actions/runs/42702186932",
-    "receipt:initial-ref-accepted-f6be13bd4201f3ddb46a433f"
+    "receipt:initial-ref-accepted-f6be13bd4201f3ddb46a433f",
+    "https://github.com/wellmanifest/sorust/blob/ccfdcdcbe3f712950da3ae2672a8ed912626d752/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/ccfdcdcbe3f712950da3ae2672a8ed912626d752/tests/test_build.py"
   ]
 }
 ---
@@ -44,13 +46,15 @@ HOME: `wellmanifest/sorust`, pakiet standardu i implementacja referencyjna. Każ
 <!-- docs:section evidence -->
 ## Evidence
 
-Źródło implementacji: commit `fcfe82128748e23dc711b5d79ae776e8198a6306`. Testy budują wheel także z sdist, instalują go w osobnym venv, sprawdzają rozszerzenie, ABI, sumy kontrolne oraz klientów C, Rust i Python. Wynik: 21 testów pytest i dwa testy Cargo; wheel zbudowano również z sdist. Klient C używa dołączonego nagłówka. Odrzucono brakujące i zmodyfikowane artefakty oraz niezgodne ABI. Backend sprawdzono także w obcym pakiecie.
+Źródło implementacji: commit `fcfe82128748e23dc711b5d79ae776e8198a6306`. Testy budują wheel także z sdist, instalują go w osobnym venv, sprawdzają rozszerzenie, ABI, sumy kontrolne oraz klientów C, Rust i Python. Wynik pierwotnej walidacji: 21 testów pytest i dwa testy Cargo; wheel zbudowano również z sdist. Klient C używa dołączonego nagłówka. Odrzucono brakujące i zmodyfikowane artefakty oraz niezgodne ABI. Backend sprawdzono także w obcym pakiecie.
 
 
 
 Pomiar lokalny na Linux x86_64 / CPython 3.13, Cython 3.3.1 i rustc 1.97.1: dla 155648 bajtów mediana pięciu serii po dziesięć wywołań wyniosła Python 19.90 ms, compiled-python 3.00 ms, Rust 0.214 ms, czyli około 93× względem referencyjnego Pythona. To mikrobenchmark funkcji, bez przypięcia CPU; nie mierzy całych procesów `nl-*` ani wielu małych wywołań. Digest źródeł build: `f3636ae9a13ca90806b054b528a558b6db6e449d1dd1d54ec9705d2d7c0f869a`.
 
 Lokalne wyniki dystrybucji: `dist/sorust-0.1.0-cp313-cp313-linux_x86_64.whl` i `dist/sorust-0.1.0.tar.gz`. Testy i dokładne konfiguracje klientów: `tests/test_build.py`. Pełne wyniki maszynowe pozostają w prywatnych receiptach.
+
+Korekta wiązania importu w źródle `ccfdcdcbe3f712950da3ae2672a8ed912626d752`: na bazie `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa` odtworzono import `_compat.so` pominiętego w manifeście, mimo poprawnych sum pliku `listed_copy.so`. Runtime sprawdza teraz przed importem, czy wybrany natywny loader wskazuje plik wymieniony w zweryfikowanych wpisach `python-extension`, i porównuje pochodzenie zaimportowanego modułu. Cztery przypadki testu `test_compiled_import_requires_manifest_bound_native_module` zakończyły się PASS: nieujęta binarka, źródło `.py`, brak rozszerzenia i wcześniej zaimportowana nieujęta binarka. Test źródła potwierdza brak wykonania kodu `.py` przed odrzuceniem. Pełny zestaw walidacji korekty: 25 testów pytest PASS (47,32 s) oraz 2 testy Cargo PASS. Schemat manifestu i ABI C v1 pozostają zgodne.
 
 <!-- docs:section content -->
 ## Content
@@ -61,7 +65,7 @@ Lokalne wyniki dystrybucji: `dist/sorust-0.1.0-cp313-cp313-linux_x86_64.whl` i `
 | SORUST-002 | Każdy atomowy komponent budowany backendem MUSI dać rozszerzenie CPython oraz Rust `cdylib`. Wheel MUSI mieć tag interpretera i platformy; wybrane moduły `.py` nie są pakowane obok ich rozszerzeń. |
 | SORUST-003 | Współdzielenie binarki Rust MUSI używać wersjonowanego ABI C: jawne rozmiary liczb, długości buforów, własność pamięci, kody błędów i funkcja wersji ABI. Panika nie może przekroczyć FFI. |
 | SORUST-004 | Wheel MUSI zawierać `sorust-artifacts.json`: ścieżki, SHA-256 obu rodzajów binarek, ABI, SOABI Pythona, platformę, wersję rustc oraz digest źródeł. Nagłówki z `include/*.h` są pakowane i hashowane. |
-| SORUST-005 | Produkcja MUSI jawnie używać natywnego backendu. Brak, rozbieżna suma albo niezgodna wersja ABI zatrzymuje wywołanie; nie ma cichego powrotu do źródłowego Pythona. |
+| SORUST-005 | Produkcja MUSI jawnie używać natywnego backendu. Wybrane do importu rozszerzenie CPython MUSI odpowiadać zweryfikowanemu wpisowi `python-extension` przed jego załadowaniem; brak, nieujęty plik, źródło `.py`, rozbieżna suma lub ABI zatrzymują wywołanie. |
 | SORUST-006 | Zmiana jądra MUSI przejść testy różnicowe względem zaakceptowanej semantyki oraz pomiar reprezentatywnych rozmiarów. Migracja kolejnych bottlenecków wymaga profilowania. |
 | SORUST-007 | Jedno jądro ma jednego właściciela, własną wersję i jedną odpowiedzialność. Konsumenci MUSZĄ reużywać dystrybucję zamiast kopiować implementację. |
 | SORUST-008 | Budowanie Rust używa `--release --locked --offline`. Sdist MUSI zawierać źródła, Cargo.lock i konfigurację backendu; zależności Cargo należy wcześniej dostarczyć do cache lub vendor. |
@@ -137,4 +141,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Kolejny krok publikacji źródeł: PR ticket-001 na bazie tego seeda, wymagane bramy dla aktualnego HEAD oraz niezależne zatwierdzenie i merge Validatora. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekta ticket-002 podlega własnym bramom i niezależnemu zatwierdzeniu aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
