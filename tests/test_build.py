@@ -1,6 +1,7 @@
 """Real build/install/link tests; all compiler and runtime processes are exercised."""
 import json
 import hashlib
+import ctypes
 import os
 from pathlib import Path
 import shutil
@@ -176,6 +177,62 @@ return !(sorust_abi_version()==1 && sorust_count_ascii_tokens_v1(text, sizeof(te
     run(["cc", source, "-I", package / "_native", library,
          "-Wl,-rpath," + str(library.parent), "-o", binary])
     run([binary])
+
+
+def test_rust_bytes_subclass_uses_buffer_length(monkeypatch):
+    import sorust
+
+    class MisleadingLength(bytes):
+        def __len__(self):
+            return 1024
+
+    def capture(data, length, output):
+        assert length == memoryview(data).nbytes == 7
+        ctypes.cast(output, ctypes.POINTER(ctypes.c_uint64))[0] = 2
+        return 0
+
+    monkeypatch.setattr(sorust, "_kernel", lambda: (None, capture))
+    assert sorust.count_ascii_tokens(MisleadingLength(b"one two")) == 2
+
+
+def test_rust_bytes_passthrough_avoids_copy(monkeypatch):
+    import sorust
+    payload = b"one two"
+
+    def capture(data, length, output):
+        assert data is payload and length == 7
+        ctypes.cast(output, ctypes.POINTER(ctypes.c_uint64))[0] = 2
+        return 0
+
+    monkeypatch.setattr(sorust, "_kernel", lambda: (None, capture))
+    assert sorust.count_ascii_tokens(payload) == 2
+
+
+@pytest.mark.parametrize("case", ["plain", "length", "iteration", "bytes", "combined"])
+def test_installed_bytes_subclass_parity(built, case):
+    _, _, python, _ = built
+    run([python, "-I", "-c", '''
+import importlib.util
+import sys
+import sorust
+spec = importlib.util.spec_from_file_location("reference", sys.argv[1])
+reference = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(reference)
+class Plain(bytes): pass
+class Length(bytes):
+    def __len__(self): return 0
+class Iteration(bytes):
+    def __iter__(self): return iter([32])
+class BytesHook(bytes):
+    def __bytes__(self): return b"wrong wrong wrong"
+class Combined(Length, Iteration, BytesHook): pass
+classes = {"plain": Plain, "length": Length, "iteration": Iteration,
+           "bytes": BytesHook, "combined": Combined}
+payload = classes[sys.argv[2]](b"one two")
+assert reference.count_ascii_tokens(payload) == 2
+for backend in ("rust", "compiled-python"):
+    assert sorust.count_ascii_tokens(payload, backend=backend) == 2
+''', ROOT / "src/sorust/_compat.py", case])
 
 
 def test_rust_consumer_reuses_rlib(tmp_path):

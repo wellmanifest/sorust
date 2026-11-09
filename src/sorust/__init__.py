@@ -66,6 +66,8 @@ def count_ascii_tokens(data: bytes, *, backend: str = "rust") -> int:
     """Count whitespace-delimited byte tokens using the selected native backend."""
     if not isinstance(data, bytes):
         raise TypeError("data must be bytes")
+    if type(data) is not bytes:
+        data = memoryview(data).tobytes()
     if backend == "compiled-python":
         manifest = verify_artifacts()
         name = __name__ + "._compat"
