@@ -1,0 +1,8 @@
+include VERSION
+recursive-include crates *.toml *.lock *.rs
+recursive-include include *.h
+recursive-include docs *.md
+recursive-include tests *.py
+recursive-include examples *.toml *.py
+global-exclude *.so *.dylib *.dll *.pyc
+prune crates/sorust-kernel/target

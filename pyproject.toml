@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77", "wheel>=0.45", "Cython>=3,<4"]
+build-backend = "sorust.backend"
+backend-path = ["src"]
+
+[project]
+name = "sorust"
+version = "0.1.0"
+description = "Compiled Python and atomic Rust binaries for Wellmanifest libraries"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+build = ["setuptools>=77", "wheel>=0.45", "Cython>=3,<4", "build>=1"]
+test = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.sorust]
+python-modules = ["sorust._compat"]
+rust-manifest = "crates/sorust-kernel/Cargo.toml"
+rust-library = "sorust_kernel"
+artifact-package = "sorust"
+abi-version = 1
+
+[tool.pytest.ini_options]
+addopts = "-p wellmanifest_governance"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.wellmanifest]
+standard = "0.20.144"
+revision = "8724674cfa7eebf0c64df2db63ff528ad8dbd159"
+gate = "project/governance-check.sh"
