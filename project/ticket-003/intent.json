@@ -1,0 +1,106 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-003",
+  "summary": "Bind FFI lengths and parity to actual bytes buffers",
+  "workstream": "integration",
+  "classification": {
+    "kind": "BUG",
+    "priority": "P1",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-003/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "src/sorust/_compat.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "f6b9829ed488e0fc34b6b4c47130abc836d01d7e",
+    "targetBranch": "main",
+    "outcome": "Normalize bytes subclasses from their actual buffer before native backend dispatch; align pure-Python reference and compiled/Rust behavior, preserve ordinary bytes identity, regressions and canonical standard. Publish and independently merge under repeated user continuation/test/merge request.",
+    "nonGoals": [
+      "Change C ABI, Rust algorithm, dependency versions, public API signatures or protected delivery policy.",
+      "Publish to registries, add platforms or migrate consumers.",
+      "Execute native code with an oversized or otherwise invalid buffer length."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 25,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 0
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "For bytes subclasses only, read the buffer protocol into exact immutable bytes using memoryview.tobytes before both backends and reference iteration. Exact bytes retain the original object. Stub-only oversized-length regression avoids native invalid reads; installed parity uses safe underreported length and hook variants.",
+      "components": [
+        {
+          "name": "byte-semantics",
+          "paths": [
+            "src/sorust/__init__.py",
+            "src/sorust/_compat.py"
+          ]
+        },
+        {
+          "name": "regressions",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert through independent protected review; retain the capture-stub reproduction and validation receipts without unsafe native replay."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k bytes_"
+        ],
+        "evidence": "Oversized subclass length is tested through a Python-only kernel stub; exact bytes identity is preserved; installed backend/reference parity covers ordinary and misleading len/iteration/bytes-hook subclasses."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Full native package build/install, ABI/integrity and C/Rust/Python consumers pass."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head Validator publication"
+        ],
+        "evidence": "Canonical standard metadata/index/source and local checks pass; required governance checks and independent exact-head approval/merge govern delivery."
+      }
+    ]
+  }
+}

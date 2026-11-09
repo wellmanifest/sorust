@@ -8,6 +8,8 @@ are opaque; this is deliberately different from Unicode str.split().
 def count_ascii_tokens(data: bytes) -> int:
     if not isinstance(data, bytes):
         raise TypeError("data must be bytes")
+    if type(data) is not bytes:
+        data = memoryview(data).tobytes()
     count = 0
     inside = False
     for value in data:
