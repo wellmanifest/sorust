@@ -1,0 +1,16 @@
+[package]
+name = "sorust-kernel"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "Atomic ASCII token-count kernel with a versioned C ABI"
+
+[lib]
+name = "sorust_kernel"
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"

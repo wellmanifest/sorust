@@ -7,3 +7,12 @@
 /.subactor/receipts/
 /.subactor/cache/
 /.subactor/snapshots/
+
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+target/
+.pytest_cache/

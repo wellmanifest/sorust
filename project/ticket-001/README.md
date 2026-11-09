@@ -3,36 +3,19 @@
 - **ID**: ticket-001
 - **Owner**: unresolved:human
 - **Status**: IN_PROGRESS
-- **Workflow state**: EDIT
+- **Workflow state**: PUBLICATION
 - **Created**: 2026-11-09
 
 ## Goal and scope
 
-To be completed from human-owned input.
+SESSION_EXECUTION_AUTHORIZATION: user requests a new sorust Python library and standard producing Python .so modules and reusable atomic Rust binaries for Wellmanifest nl-* libraries. Workspace intake PLF-003. Source, tests and documentation; existing consumers keep separate ownership. Publication authorization was extended by the user on 2026-11-09: "kontynuuj, scalaj". Use independent protected validation and merge; no author bypass.
 
 ## Acceptance criteria
 
-- [ ] AC-01: Scope is approved by a human owner.
+- AC-01: Build a platform wheel containing both native artifacts and a checksum manifest; rebuild the same source through its sdist.
+- AC-02: Validate Python/Rust parity, C ABI reuse and rejection of missing, corrupt or incompatible artifacts.
+- AC-03: Deliver an indexed canonical standard and consumer example, run local governance and report commit/PR/merge separately.
 
-## Tracking boundary
+- AC-04: Publish through the declared independent route after a protected initial-ref publisher creates the empty remote main baseline. Publisher published the exact seed and independent Validator emitted accepted receipt in run42702186932. GitHub attestation persistence is unavailable; authenticated immutable artifact digest and this gap are documented. Feature PR retains independent protected approval and merge.
 
-This directory contains the minimal reviewed intent. Optional participant prose
-and raw command logs are not required delivery output.
-
-<!-- ticket-radar:start -->
-## Ticket Radar
-
-Initial planned-scope estimate; advisory only, not execution or merge approval.
-
-| Measure | Initial assessment |
-| --- | --- |
-| Impact score | 68/100 |
-| Complexity | L |
-| Estimated effort | 94 min |
-| Planning budget | 30 min |
-| Split recommended | yes |
-
-Diagnostics: RADAR-ACCEPTANCE-MISSING, RADAR-BUDGET-EXCEEDED.
-<!-- ticket-radar:end -->
-
-SESSION_EXECUTION_AUTHORIZATION: explicit new-repository seed request; no product implementation before the real baseline.
+Canonical result: [Sorust binary standard](../../docs/information/sorust-binary-standard.md).

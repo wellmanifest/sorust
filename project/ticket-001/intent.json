@@ -30,5 +30,124 @@
   "stacks": [],
   "dependsOn": [],
   "conflictsWith": [],
-  "integrationTicket": null
+  "integrationTicket": null,
+  "placement": {
+    "home": "wellmanifest",
+    "shape": "domain_pack",
+    "runtimeOwner": "wellmanifest",
+    "adopt": [
+      "wellmanifest/new-project",
+      "wellmanifest/python",
+      "wellmanifest/docs",
+      "wellmanifest/reuse"
+    ]
+  },
+  "delivery": {
+    "acceptedBaseSha": "ea1bf67895e4ca2abda99d44fc8a538b01470350",
+    "targetBranch": "main",
+    "outcome": "Build compiled Python extensions and reusable atomic Rust cdylibs in platform wheels with checksums, versioned C ABI, parity tests and adoption guidance for nl-* consumers. Continue through GitHub PR and independent protected merge under the user publication request of 2026-11-09; initial-ref publication requires its separate protected grant.",
+    "nonGoals": [
+      "Migrate existing consumer repositories, publish to package registries, forge initial-ref grants, disable hooks or perform author approval/merge.",
+      "Claim automatic speedup for arbitrary Python, stable Rust ABI or cross-platform validation from one host."
+    ],
+    "complexity": "L",
+    "estimatedMinutes": 95,
+    "budgets": {
+      "maxAffectedComponents": 5,
+      "maxImplementationFiles": 15,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 3
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Use Cython for explicitly selected Python modules and Cargo cdylib plus rlib for independent Rust kernels. A PEP517 backend packages both artifacts with an integrity manifest. A versioned C ABI permits cross-language sharing; explicit native selection fails on missing or corrupt binaries.",
+      "components": [
+        {
+          "name": "build-backend",
+          "paths": [
+            "src/sorust/backend.py",
+            "pyproject.toml",
+            "MANIFEST.in",
+            ".gitignore",
+            "CHANGELOG.md"
+          ]
+        },
+        {
+          "name": "python-runtime",
+          "paths": [
+            "src/sorust/__init__.py",
+            "src/sorust/_compat.py"
+          ]
+        },
+        {
+          "name": "rust-kernel",
+          "paths": [
+            "crates/**",
+            "include/**"
+          ]
+        },
+        {
+          "name": "validation-and-example",
+          "paths": [
+            "tests/**",
+            "examples/**"
+          ]
+        },
+        {
+          "name": "standard",
+          "paths": [
+            "docs/**",
+            "README.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [
+        "PEP517 build hooks",
+        "count_ascii_tokens Python API",
+        "sorust C ABI v1"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Remove this isolated consumer dependency or revert through protected review; preserve existing consumer code."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Wheel and sdist rebuild each contain an importable compiled Python module and a Rust shared library with matching manifest hashes."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Byte corpus parity, ABI null/empty checks, integrity rejection, independent wheel installation and Rust/C consumer reuse."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check"
+        ],
+        "evidence": "Bounded local governance and canonical documentation checks; no claim of remote approval."
+      },
+      {
+        "criterion": "AC-04",
+        "commands": [
+          "protected Repository Publisher initial-ref plan/grant publication",
+          "deployed Validator run-local-direct-pr.sh --merge after required checks"
+        ],
+        "evidence": "Independent grant and initial-ref Validator receipt precede PR creation; exact-head approval and confirmed merge remain required. Missing authority is recorded in the initial-ref outbox."
+      }
+    ]
+  }
 }
