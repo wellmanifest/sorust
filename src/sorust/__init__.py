@@ -5,6 +5,7 @@ import ctypes
 import hashlib
 import importlib
 import importlib.machinery
+import importlib.util
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -66,10 +67,23 @@ def count_ascii_tokens(data: bytes, *, backend: str = "rust") -> int:
     if not isinstance(data, bytes):
         raise TypeError("data must be bytes")
     if backend == "compiled-python":
-        verify_artifacts()
-        module = importlib.import_module("sorust._compat")
-        if not any(str(module.__file__).endswith(x) for x in importlib.machinery.EXTENSION_SUFFIXES):
+        manifest = verify_artifacts()
+        name = __name__ + "._compat"
+        try:
+            spec = importlib.util.find_spec(name)
+        except (ImportError, ValueError) as error:
+            raise NativeArtifactError("Cannot resolve compiled Python extension") from error
+        if (spec is None or not spec.origin
+                or not isinstance(spec.loader, importlib.machinery.ExtensionFileLoader)):
             raise NativeArtifactError("compiled Python extension required")
+        verified = {(Path(__file__).parent / item["path"]).resolve()
+                    for item in manifest["artifacts"] if item["kind"] == "python-extension"}
+        selected = Path(spec.origin).resolve()
+        if selected not in verified:
+            raise NativeArtifactError("compiled Python extension is not listed in artifact manifest")
+        module = importlib.import_module(name)
+        if Path(module.__file__).resolve() != selected:
+            raise NativeArtifactError("imported Python extension differs from verified origin")
         return module.count_ascii_tokens(data)
     if backend != "rust":
         raise ValueError("backend must be rust or compiled-python")

@@ -123,6 +123,46 @@ def test_sdist_has_native_sources(built):
             assert any(name.endswith(suffix) for name in names)
 
 
+@pytest.mark.parametrize("case", ["unlisted", "source", "missing", "preloaded"])
+def test_compiled_import_requires_manifest_bound_native_module(built, tmp_path, case):
+    _, _, python, package = built
+    clone = tmp_path / "sorust"
+    shutil.copytree(package, clone)
+    manifest_path = clone / "sorust-artifacts.json"
+    manifest = json.loads(manifest_path.read_text())
+    entry = next(item for item in manifest["artifacts"] if item["kind"] == "python-extension")
+    original = clone / entry["path"]
+    listed_copy = clone / "listed_copy.so"
+    shutil.copyfile(original, listed_copy)
+    entry["path"] = listed_copy.name
+    manifest_path.write_text(json.dumps(manifest))
+    marker = tmp_path / "uncompiled-source-ran"
+    if case in {"source", "missing"}:
+        original.unlink()
+    if case == "source":
+        (clone / "_compat.py").write_text(
+            f"from pathlib import Path\nPath({str(marker)!r}).write_text('executed')\n"
+            "def count_ascii_tokens(data):\n    return 2\n")
+    run([python, "-I", "-c", '''
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+import sorust
+sorust.verify_artifacts()
+if sys.argv[2] == "preloaded":
+    from sorust import _compat
+try:
+    sorust.count_ascii_tokens(b"one two", backend="compiled-python")
+except sorust.NativeArtifactError:
+    pass
+else:
+    raise AssertionError("unlisted compiled module accepted")
+assert not Path(sys.argv[3]).exists(), "uncompiled Python executed before rejection"
+if sys.argv[2] != "preloaded":
+    assert "sorust._compat" not in sys.modules, "unverified module imported before rejection"
+''', tmp_path, case, marker])
+
+
 def test_c_consumer_links_installed_binary(built, tmp_path):
     _, _, _, package = built
     manifest = json.loads((package / "sorust-artifacts.json").read_text())
