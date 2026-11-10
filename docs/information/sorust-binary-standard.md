@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 20,
+  "version": 21,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "4faed7fdd072ffffc4c32578ea2062848274d79f",
+  "source_revision": "82055601c3803ab16238112e5c3e645cf0e4385a",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -113,7 +113,15 @@
     "receipt:sorust.isolation-pip-probe.5fe81a1",
     "receipt:sorust.isolation-validation.4faed7f",
     "receipt:sorust.isolation-default-regression.4faed7f",
-    "receipt:sorust.isolation-unchanged-sdk.4faed7f"
+    "receipt:sorust.isolation-unchanged-sdk.4faed7f",
+    "https://github.com/wellmanifest/sorust/pull/16",
+    "https://github.com/wellmanifest/sorust/blob/82055601c3803ab16238112e5c3e645cf0e4385a/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/82055601c3803ab16238112e5c3e645cf0e4385a/tests/test_rust_components.py",
+    "receipt:sorust.native-component-baseline.8de2464",
+    "receipt:sorust.native-component-targeted.8205560",
+    "receipt:sorust.native-component-validation.8205560",
+    "receipt:sorust.native-component-practical.8205560",
+    "receipt:sorust.native-component-compatibility.8205560"
   ]
 }
 ---
@@ -254,6 +262,12 @@ Oddzielny świeży przebieg z sześcioma wheel-ami, po usunięciu Cython, kończ
 
 Końcowa walidacja poprawionego źródła: 36 testów pilota PASS (17,20 s), pełne 233 testy pytest PASS (312,00 s) oraz 5 testów Cargo PASS dla niezmienionego jądra. Osobny domyślny przebieg bez izolacji przeszedł kolejne 24 wykonania oryginalnych testów zgodności; digest wyników semantycznych i wejściowy wheel SDK są identyczne z przebiegiem izolowanym. Receipt `receipt:sorust.isolation-validation.4faed7f` wiąże pełną końcową wersję testów; `receipt:sorust.isolation-default-regression.4faed7f` wiąże porównanie trybów. Runtime/backend/crate/konfiguracja budowania są identyczne z bazą, co sprawdzono względem Git i bajtów SDK (`receipt:sorust.isolation-unchanged-sdk.4faed7f`). Dlatego finalny wheel SDK i `.rlib` można reużyć bez ponownej kompilacji, a sdist zawiera aktualne narzędzie i dokumentację.
 
+Samodzielny komponent Rust w źródle `82055601c3803ab16238112e5c3e645cf0e4385a`: baza `8de2464d896f336e3c27a35cc0001696416973ee` odrzucała weryfikację i eksport Rust-only przed utworzeniem wyjścia. Nowy format przechodzi 76 testów celowanych (25,66 s), pełne 273 testy pytest (276,20 s) i 5 testów Cargo. Testy obejmują dokładne pola i role, hashe, ścieżki, dowiązania metadanych/root/payloadu, duplikaty, drift, zgodność starych schematów oraz brak możliwości zastąpienia domyślnego SDK formatem Rust-only. Rzeczywisty Python-free wheel instaluje się jako osobna dystrybucja; metadata lookup bez importu pakietu, eksport oraz klient C ABI v1 przechodzą. Receipt: `receipt:sorust.native-component-validation.8205560`.
+
+Próba na niezmienionym NL `aa47c8752f1ea446208f6dfb7a018ad02e92250a` użyła osobnego `sorust-kernel-component-pilot==0.0.0` jako zadeklarowanej zależności budowania. Wheel `py3-none-linux_x86_64` ma SHA-256 `b09433c55142f88570acaea958a34a88885f67c3f4c33a6735de9cba596553dd`, zawiera tylko Rust, nagłówek, manifest i metadane, a hash jego manifestu wynosi `ca4ebfd72a569b5490f9513a0dd7a9953a9134fdc7427c18f1b031e39b861369`. Zachowany digest źródeł SDK wynosi `b0a5dc235f76cc0b86357778c10919c55ff83b9cf17bbcd0ff5b6be6bc485ac0`. Osiem wheel-i trafia do prywatnego snapshotu; dystrybucja komponentu nie jest wcześniej zainstalowana we frontendzie. Izolowane sdist → wheel działa bez Cargo/rustc na PATH. Każdy z trzech trybów źródło/instalacja/eksport przechodzi 8 oryginalnych testów conformance, 24 wykonania łącznie; Rust i nagłówek są identyczne z wejściowym SDK. Raport ma SHA-256 `31eca23b9c48c3b12d7c72ff7640b5d607a280c3f6f18785b374463ee3902439`; receipt `receipt:sorust.native-component-practical.8205560`. To próba zgodności i reużycia z 10 iteracjami, bez nowego wniosku czasowego.
+
+Rzeczywisty stary czytnik z bazy v20 odrzuca nowego dawcę w verify/export, pozostawiając brak celu. Ten sam czytnik poprawnie audytuje nowy SDK v1 oraz audytuje i eksportuje rzeczywisty wynik NL v2 z proweniencją nowego dawcy. Potwierdza to oddzielenie nowego formatu zależności od zachowanego kontraktu artefaktów konsumenta; receipt `receipt:sorust.native-component-compatibility.8205560`. Nie zmieniono jądra Rust, ABI, zależności ani źródeł konsumenta.
+
 <!-- docs:section content -->
 ## Content
 
@@ -358,9 +372,9 @@ bundle = export_artifacts("./sorust-bundle-api")
 manifest = verify_artifacts(bundle)
 ```
 
-Obcy pakiet z manifestem `sorust.artifacts/v1` można wskazać przez `python -m sorust export ./component-bundle --package-dir /sciezka/do/pakietu` albo `export_artifacts("./component-bundle", package_dir="/sciezka/do/pakietu")`. Ścieżka źródłowa oznacza katalog zawierający `sorust-artifacts.json`, nie całe repozytorium. Eksport nie uruchamia kompilatorów ani nie ładuje kopiowanego kodu natywnego.
+Obcy pakiet z manifestem `sorust.artifacts/v1`, `sorust.artifacts/v2` lub `sorust.rust-component/v1` można wskazać przez `python -m sorust export ./component-bundle --package-dir /sciezka/do/pakietu` albo `export_artifacts("./component-bundle", package_dir="/sciezka/do/pakietu")`. Ścieżka źródłowa oznacza katalog zawierający `sorust-artifacts.json`, nie całe repozytorium. Eksport nie uruchamia kompilatorów ani nie ładuje kopiowanego kodu natywnego.
 
-Rodzic celu musi istnieć, a sam cel musi być nowy. API zwraca bezwzględny `Path`, CLI wypisuje go na stdout. API zgłasza `NativeArtifactError` dla niepoprawnego źródła lub snapshotu, `FileExistsError` dla istniejącego celu i `OSError` dla błędów zapisu. CLI kończy takie błędy kodem 1; błędy składni argumentów obsługuje argparse. Puste katalogi, pliki i dowiązania również nie są nadpisywane. Kopiuje się tylko wpisy `artifacts` i `headers`; nie kopiuje się adapterów `.py`, danych pakietu ani opcjonalnego `.rlib`.
+Rodzic celu musi istnieć, a sam cel musi być nowy. API zwraca bezwzględny `Path`, CLI wypisuje go na stdout. API zgłasza `NativeArtifactError` dla niepoprawnego źródła lub snapshotu, `FileExistsError` dla istniejącego celu i `OSError` dla błędów zapisu. CLI kończy takie błędy kodem 1; błędy składni argumentów obsługuje argparse. Puste katalogi, pliki i dowiązania również nie są nadpisywane. Kopiuje się wpisy `artifacts`, `headers` i zadeklarowane `resources` w v2; pomija się niewymienione adaptery `.py`, dane pakietu i opcjonalne `.rlib`.
 
 Manifest zachowuje dane o ABI, platformie, SOABI i źródłach. Snapshot bajtów sprawdza się ponownie przed utworzeniem wyjścia; manifest zapisuje się po plikach. Przerwany zapis może pozostawić częściowy katalog, którego nie należy używać bez udanej weryfikacji. To nie jest atomowa publikacja całego katalogu ani gwarancja trwałości po awarii systemu. Klient C korzysta z wyeksportowanego `_native/sorust.h` i `_native/libsorust_kernel.so`. Rozszerzenie Python wymaga zgodnego CPython/ABI; gotowy wheel pozostaje standardową drogą instalacji pełnego adaptera Python.
 
@@ -442,6 +456,31 @@ Po audycie ponownie sprawdza hashe i tworzy snapshot wyłącznie Rust cdylib i n
 Addytywne pole manifestu `rust_component` zapisuje `distribution`, `version`, `package`, `manifest_sha256` i `source_sha256` dawcy; pole `rustc` zachowuje jego kompilator. Jest to informacja o pochodzeniu, bez uwierzytelnienia wydawcy. Lista wymaganych plików i zasady ich audytu pozostają w istniejącym schemacie: v1 bez zasobów konsumenta, v2 z zasobami. Czytnik v18 nadal audytuje i eksportuje te manifesty. Wheel i eksport są samodzielne, z prywatnymi kopiami wspólnych bajtów; nie gwarantują jednej współdzielonej instancji w procesie.
 
 Pin odnosi się do konkretnego zainstalowanego wheel-a i platformy. Sdist z takim pinem nie jest automatycznie przenośny między platformami ani wersjami CPython. Testowany zakres pozostaje Linux x86_64 / CPython 3.13. Zmiana dawcy wymaga jawnej aktualizacji pinów i ponownej walidacji konsumenta; powrót do `rust-manifest` zachowuje dotychczasową drogę budowania.
+
+### Samodzielny komponent Rust
+
+Manifest `sorust.rust-component/v1` opisuje osobnego dawcę biblioteki Rust. Jest przyjmowany przez `verify_artifacts(package_dir)` i eksport z jawnym `package_dir` / `--package-dir`; domyślny audyt i eksport własnego SDK Sorust nadal wymagają formatu dual v1/v2. Własne API SDK nie może w ten sposób utracić wymogu obu artefaktów. Nowy format nie zmienia schematów v1/v2 ani ABI C v1.
+
+Manifest zawiera dokładnie osiem pól:
+
+| Pole | Kontrakt |
+| --- | --- |
+| `schema` | `sorust.rust-component/v1` |
+| `abi_version` | Liczba całkowita 1, z wykluczeniem boolean |
+| `package` | Kanoniczna nazwa pakietu zgodna z konfiguracją `rust-component` |
+| `platform` | Niepusta deklaracja platformy; backend wymaga zgodności z builderem |
+| `rustc` | Niepusta informacja o kompilatorze źródłowego artefaktu |
+| `source_sha256` | 64 małe znaki hex, digest zadeklarowanych źródeł producenta |
+| `headers` | Lista wpisów z dokładnymi kluczami `path`, `sha256`, może być pusta |
+| `artifacts` | Dokładnie jeden wpis `kind="rust-cdylib"` z `path` i `sha256` |
+
+Biblioteka ma bezpośrednią, kanoniczną ścieżkę `_native/<plik>.so`, `.dylib` lub `.dll`; nagłówki `_native/<plik>.h`. Wpisy mają unikalne ścieżki i SHA-256 jako 64 małe znaki hex. Nie wolno dodawać `python_soabi`, rozszerzeń Python, `resources` ani nieznanych pól. Manifest i payload muszą być zwykłymi plikami, bez symlinków także w rodzicach. Audyt sprawdza zadeklarowane bajty; nie inwentaryzuje dowolnych niewymienionych plików i nie uwierzytelnia producenta.
+
+Dotychczasowy descriptor `[tool.sorust.rust-component]` działa także dla takiego dawcy: nadal przypina nazwę dystrybucji, dokładną wersję, pakiet i hash manifestu. Backend odczytuje metadane bez importu pakietu, sprawdza własność manifestu/payloadu, platformę, nazwę biblioteki, ABI i snapshot. Rozszerzenia Python dawcy nie są już wymagane, gdy jego jawny format jest Rust-only. Konsument nadal buduje swoje rozszerzenia i emituje zwykły manifest v1/v2; `rust_component` wskazuje nowego dawcę. Starszy czytnik odrzuca nowy schemat przed eksportem. Budowa z nim wymaga SDK obsługującego ten format, z przypiętym źródłem lub dokładnym wheel-em.
+
+Opcja pilota `--native-only-component`, razem z `--prebuilt-rust --build-wheelhouse ...`, pakuje wyłącznie zweryfikowane Rust cdylib i nagłówki wejściowego SDK przez istniejące `python -m wheel pack`. Wheel `sorust_kernel_component_pilot-0.0.0-py3-none-<platform>.whl` zawiera manifest, bibliotekę, nagłówki i standardowe metadane, bez źródeł ani rozszerzeń Python. Manifest zachowuje kompilator i digest źródeł pochodzący z wejściowego SDK; nie oznacza to nowej kompilacji jądra. Generator działa jako kontrolowany pilot repakowania gotowych bajtów, bez nowego profilu budowania komponentów Rust ze źródeł.
+
+Wygenerowany wheel trafia do prywatnego snapshotu wheelhouse jako ósme wejście; nie wolno mu zastąpić pliku użytkownika. Projekt NL deklaruje go w `[build-system].requires`, a izolowany frontend instaluje go przed budową. Probe frontendu sprawdza uprzedni brak tej dystrybucji, a raport `rustComponentWheel` wiąże nazwę, tag, hash całego wheel-a, manifest i descriptor. Weryfikacja inwentarza dotyczy rzeczywistego generowanego wheel-a i potwierdza brak payloadu Python. Tag `py3-none` opisuje brak ABI CPython w tej paczce; nie jest dowodem testów na innych interpreterach, manylinux lub innych systemach. Zakres pomiaru pozostaje Linux x86_64 / CPython 3.13.
 
 ### Jawne zasoby danych i manifest v2
 
@@ -551,4 +590,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Przygotowany licznik scalono przez [PR11](https://github.com/wellmanifest/sorust/pull/11) jako `ea3b05b39810b0add6b8d21e3fbd486d9432b96d`, po niezależnym zatwierdzeniu HEAD `b57267857a6ecfc10566e1d55e95aeaed4425dcf`. Odcisk skryptu Cargo scalono przez [PR12](https://github.com/wellmanifest/sorust/pull/12) jako `16e802b5d16fba5372fc4333a4ed05a6a9bb8e7f`, po niezależnym zatwierdzeniu HEAD `85892adc316c02803fbf4f6f6f892f583452a7d1`. Pilot scalono przez [PR13](https://github.com/wellmanifest/sorust/pull/13) jako `55bb710930d9d83d31c9dd5d9a221872c813af08`, po niezależnym zatwierdzeniu HEAD `c94eed2635e8e3c7509aa98221f68569702dc19d`. Zasoby scalono przez [PR14](https://github.com/wellmanifest/sorust/pull/14) jako `e78ce82c3100dfedf178cddaed0439ffbd38b687`, po niezależnym zatwierdzeniu HEAD `5b06d9c3fcbe7775276eb4eb0ebaa0afe4dc7779`. Komponent zainstalowany scalono przez [PR15](https://github.com/wellmanifest/sorust/pull/15) jako `78c0f69dcda83f60469bbddbbee65838f2339734`, po niezależnym zatwierdzeniu HEAD `fa11c5574aeca336dd700eacb2c9a0c520bb24f2`. Każda następna zmiana, w tym izolowany pilot w ticket-016, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Przygotowany licznik scalono przez [PR11](https://github.com/wellmanifest/sorust/pull/11) jako `ea3b05b39810b0add6b8d21e3fbd486d9432b96d`, po niezależnym zatwierdzeniu HEAD `b57267857a6ecfc10566e1d55e95aeaed4425dcf`. Odcisk skryptu Cargo scalono przez [PR12](https://github.com/wellmanifest/sorust/pull/12) jako `16e802b5d16fba5372fc4333a4ed05a6a9bb8e7f`, po niezależnym zatwierdzeniu HEAD `85892adc316c02803fbf4f6f6f892f583452a7d1`. Pilot scalono przez [PR13](https://github.com/wellmanifest/sorust/pull/13) jako `55bb710930d9d83d31c9dd5d9a221872c813af08`, po niezależnym zatwierdzeniu HEAD `c94eed2635e8e3c7509aa98221f68569702dc19d`. Zasoby scalono przez [PR14](https://github.com/wellmanifest/sorust/pull/14) jako `e78ce82c3100dfedf178cddaed0439ffbd38b687`, po niezależnym zatwierdzeniu HEAD `5b06d9c3fcbe7775276eb4eb0ebaa0afe4dc7779`. Komponent zainstalowany scalono przez [PR15](https://github.com/wellmanifest/sorust/pull/15) jako `78c0f69dcda83f60469bbddbbee65838f2339734`, po niezależnym zatwierdzeniu HEAD `fa11c5574aeca336dd700eacb2c9a0c520bb24f2`. Izolowany pilot scalono przez [PR16](https://github.com/wellmanifest/sorust/pull/16) jako `8de2464d896f336e3c27a35cc0001696416973ee`, po niezależnym zatwierdzeniu HEAD `91405c695758586a594a35bc02b09313e1a991f5`. Każda następna zmiana, w tym samodzielny komponent Rust w ticket-017, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
