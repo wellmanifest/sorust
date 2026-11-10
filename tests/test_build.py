@@ -519,6 +519,153 @@ else: raise AssertionError("missing compiled batch entry silently accepted")
 
 
 @pytest.mark.parametrize("backend", ["rust", "compiled-python"])
+def test_source_prepared_requires_native_artifacts(backend):
+    import sorust
+    with pytest.raises(sorust.NativeArtifactError):
+        sorust.prepare_ascii_token_counter(backend=backend)
+
+
+def test_prepared_invalid_backend_is_eager():
+    import sorust
+    with pytest.raises(ValueError, match="backend"):
+        sorust.prepare_ascii_token_counter(backend="unknown")
+
+
+def test_prepared_rust_buffer_lifetime_and_errors(monkeypatch):
+    import gc
+    import weakref
+    import sorust
+    audits, lookups, calls = [], [], []
+    status = [0]
+
+    class Library:
+        pass
+
+    library = Library()
+    alive = weakref.ref(library)
+
+    def function(data, length, output):
+        calls.append((data, length))
+        ctypes.cast(output, ctypes.POINTER(ctypes.c_uint64)).contents.value = 2
+        return status[0]
+
+    def kernel():
+        lookups.append(True)
+        return library, function
+
+    monkeypatch.setattr(sorust, "verify_artifacts", lambda: audits.append(True))
+    monkeypatch.setattr(sorust, "_kernel", kernel)
+    counter = sorust.prepare_ascii_token_counter()
+    del library
+    gc.collect()
+    assert alive() is not None
+    value = b"one two"
+    assert counter(value) == 2 and calls[-1][0] is value
+
+    class Misleading(bytes):
+        def __len__(self):
+            return 0
+
+        def __bytes__(self):
+            raise AssertionError("bytes override used")
+
+        def __iter__(self):
+            raise AssertionError("iterator override used")
+
+    assert counter(Misleading(value)) == 2
+    assert calls[-1] == (value, 7) and type(calls[-1][0]) is bytes
+    assert audits == lookups == [True]
+    before = len(calls)
+    with pytest.raises(TypeError, match="data must be bytes"):
+        counter("one two")
+    assert len(calls) == before
+    status[0] = 9
+    with pytest.raises(sorust.NativeArtifactError, match="status 9"):
+        counter(value)
+
+
+def test_prepared_compiled_binds_once_and_normalizes(monkeypatch):
+    from types import SimpleNamespace
+    import sorust
+    lookups, calls = [], []
+
+    def native(data):
+        calls.append(data)
+        assert type(data) is bytes
+        return 2
+
+    def compiled():
+        lookups.append(True)
+        return SimpleNamespace(count_ascii_tokens=native)
+
+    monkeypatch.setattr(sorust, "_compiled", compiled)
+    counter = sorust.prepare_ascii_token_counter(backend="compiled-python")
+    monkeypatch.setattr(sorust, "_compiled", lambda: pytest.fail("entry resolved again"))
+    value = b"one two"
+    assert counter(value) == 2 and calls[-1] is value
+    assert counter(type("Bytes", (bytes,), {})(value)) == 2
+    assert calls[-1] == value and lookups == [True]
+    with pytest.raises(TypeError, match="data must be bytes"):
+        counter(bytearray(value))
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("entry", ["missing", None, 42])
+def test_prepared_compiled_entry_is_required(monkeypatch, entry):
+    from types import SimpleNamespace
+    import sorust
+    module = SimpleNamespace()
+    if entry != "missing":
+        module.count_ascii_tokens = entry
+    monkeypatch.setattr(sorust, "_compiled", lambda: module)
+    with pytest.raises(sorust.NativeArtifactError, match="scalar entry"):
+        sorust.prepare_ascii_token_counter(backend="compiled-python")
+
+
+@pytest.mark.parametrize("backend", ["rust", "compiled-python"])
+def test_installed_prepared_parity_and_snapshot(built, tmp_path, backend):
+    shutil.copytree(built[3], tmp_path / "sorust")
+    run([built[2], "-I", "-c", r'''
+import sys
+sys.path.insert(0, sys.argv[1])
+import sorust
+import random, re
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+counter = sorust.prepare_ascii_token_counter(backend=sys.argv[2])
+rng = random.Random(941)
+values = [b"", b"one two", b"\0\xff", bytes(range(256)), "zażółć gęślą".encode()]
+values += [rng.randbytes(rng.randrange(512)) for _ in range(100)]
+expected = [len(re.findall(rb"[^\x09-\x0d\x20]+", value)) for value in values]
+assert [counter(value) for value in values] == expected
+with ThreadPoolExecutor(max_workers=4) as pool:
+    assert list(pool.map(counter, values * 3)) == expected * 3
+class Misleading(bytes):
+    def __len__(self): return 0
+    def __bytes__(self): raise AssertionError("bytes override used")
+    def __iter__(self): raise AssertionError("iterator override used")
+assert counter(Misleading(b"one two")) == 2
+for value in ["one two", bytearray(b"one two"), memoryview(b"one two"), None]:
+    try: counter(value)
+    except TypeError: pass
+    else: raise AssertionError("non-bytes accepted")
+# Edit an unmapped header, never the loaded executable bytes.
+header = Path(sorust.__file__).parent / "_native/sorust.h"
+header.write_bytes(header.read_bytes() + b"\n/* drift */\n")
+assert counter(b"one two") == 2
+for audit in [sorust.verify_artifacts,
+              lambda: sorust.prepare_ascii_token_counter(backend=sys.argv[2])]:
+    try: audit()
+    except sorust.NativeArtifactError: pass
+    else: raise AssertionError("fresh audit ignored header drift")
+if sys.argv[2] == "compiled-python":
+    try: sorust.count_ascii_tokens(b"one two", backend="compiled-python")
+    except sorust.NativeArtifactError: pass
+    else: raise AssertionError("existing compiled scalar stopped auditing")
+''', tmp_path, backend])
+
+
+@pytest.mark.parametrize("backend", ["rust", "compiled-python"])
 def test_stream_is_lazy_and_bounds_prefetch(monkeypatch, backend):
     import sorust
     consumed, calls = [], []

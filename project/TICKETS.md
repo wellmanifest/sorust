@@ -15,4 +15,5 @@ Tickets are allocated by the managed allocator.
 | **ticket-008** | [`README.md`](./ticket-008/README.md) | - | - | - | - | - |
 | **ticket-009** | [`README.md`](./ticket-009/README.md) | - | - | - | - | - |
 | **ticket-010** | [`README.md`](./ticket-010/README.md) | - | - | - | - | - |
+| **ticket-011** | [`README.md`](./ticket-011/README.md) | - | - | - | - | - |
 <!-- AUTO:TICKET_INDEX:END -->
