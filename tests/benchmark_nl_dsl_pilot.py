@@ -20,6 +20,7 @@ from pathlib import Path
 import platform
 import pstats
 import re
+import shlex
 import shutil
 import statistics
 import subprocess
@@ -231,7 +232,7 @@ def pilot(args):
     own_revision = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
     own_files = ["crates/sorust-kernel/Cargo.toml", "crates/sorust-kernel/Cargo.lock",
                  "crates/sorust-kernel/src/lib.rs", "include/sorust.h"]
-    for name, data in snapshot(ROOT, own_revision, own_files).items():
+    for name, data in ({} if args.prebuilt_rust else snapshot(ROOT, own_revision, own_files)).items():
         target = project / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -258,9 +259,31 @@ abi-version = 1
     if args.manifest_resources:
         config = project / "pyproject.toml"
         config.write_text(config.read_text() + 'resources = ["semantic-profile.json"]\n')
+    build_env = None
+    rust_marker = run / "rust-build-called"
+    if args.prebuilt_rust:
+        with zipfile.ZipFile(args.sorust_wheel) as archive:
+            manifest_pin = digest(archive.read("sorust/sorust-artifacts.json"))
+        config = project / "pyproject.toml"
+        text = config.read_text().replace('rust-manifest = "crates/sorust-kernel/Cargo.toml"\n', '')
+        text += f'''\n[tool.sorust.rust-component]
+distribution = "sorust"
+version = "{version}"
+package = "sorust"
+manifest-sha256 = "{manifest_pin}"
+'''
+        config.write_text(text)
+        tools = run / "no-rust-build"
+        tools.mkdir()
+        for name in ["cargo", "rustc"]:
+            path = tools / name
+            path.write_text(f"#!/bin/sh\nprintf '%s\\n' {name} >> {shlex.quote(str(rust_marker))}\nexit 97\n")
+            path.chmod(0o755)
+        build_env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ.get("PATH", ""))
     (project / "MANIFEST.in").write_text("recursive-include crates *.toml *.lock *.rs\nrecursive-include include *.h\nrecursive-include src *.py *.json\n")
     build_seconds = execute([sys.executable, "-I", "-m", "build", "--no-isolation",
-                             "--outdir", run / "wheels", project], ROOT, run / "build.log")
+                             "--outdir", run / "wheels", project], ROOT, run / "build.log", environment=build_env)
+    assert not rust_marker.exists(), "consumer build invoked Cargo or rustc"
     wheel = next((run / "wheels").glob("*.whl"))
     unpacked = run / "unpacked"
     with zipfile.ZipFile(wheel) as archive:
@@ -272,6 +295,12 @@ abi-version = 1
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(archive.read(name))
     consumer_manifest = sorust.verify_artifacts(unpacked / "standard")
+    if args.prebuilt_rust:
+        assert consumer_manifest["rust_component"]["manifest_sha256"] == manifest_pin
+        assert consumer_manifest["rustc"] == manifest["rustc"]
+        assert consumer_manifest["headers"] == manifest["headers"]
+        assert next(x for x in consumer_manifest["artifacts"] if x["kind"] == "rust-cdylib") == next(
+            x for x in manifest["artifacts"] if x["kind"] == "rust-cdylib")
     (run / "exported").mkdir()
     bundle = sorust.export_artifacts(run / "exported/standard", package_dir=unpacked / "standard")
     sorust.export_artifacts(run / "shared-kernel")
@@ -345,6 +374,9 @@ abi-version = 1
               "modes": observations, "wheelSpeedup": speeds,
               "rlibReuse": {"sha256": digest(args.rust_rlib.read_bytes()), "rustc": rustc, "panic": "abort", "result": [3, 3, 0]},
               "resourceMode": "manifest" if args.manifest_resources else "manual-sidecar",
+              "rustBuildMode": "installed-component" if args.prebuilt_rust else "cargo-source",
+              "consumerBuildRustToolsBlocked": args.prebuilt_rust,
+              "consumerBuildRustInvocations": [] if args.prebuilt_rust else None,
               "declaredResourceDriftRejected": resource_drift_rejected,
               "bareExportMissingConsumerResource": not args.manifest_resources,
               "explicitSidecarSha256": None if args.manifest_resources else digest(inputs["standard/semantic-profile.json"]),
@@ -364,6 +396,8 @@ def main(argv=None):
     parser.add_argument("--number", type=int, default=1000)
     parser.add_argument("--manifest-resources", action="store_true",
                         help="declare, verify and export the consumer JSON with manifest v2")
+    parser.add_argument("--prebuilt-rust", action="store_true",
+                        help="reuse the installed Sorust Rust payload and block Cargo/rustc during consumer build")
     parser.add_argument("--worker", choices=["source", "wheel", "exported"], help=argparse.SUPPRESS)
     parser.add_argument("--run-root", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--report", type=Path, help=argparse.SUPPRESS)
