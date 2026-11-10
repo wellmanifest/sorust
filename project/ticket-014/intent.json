@@ -1,0 +1,115 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-014",
+  "summary": "Verify and export explicitly declared package resources",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-014/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "src/sorust/backend.py",
+    "tests/benchmark_nl_dsl_pilot.py",
+    "tests/test_resources.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "55bb710930d9d83d31c9dd5d9a221872c813af08",
+    "targetBranch": "main",
+    "outcome": "Declare package resources explicitly, include safe resource bytes in sdist/wheel/source fingerprint, verify/export them with manifestv2 while preserving v1 readers for resource-free packages. Prove actual NL module standalone export without manual JSON copy; independently merge, release/preserve owned checkout.",
+    "nonGoals": [
+      "Change native algorithms, C ABI, runtime dependencies/platforms, production consumers or measured performance guarantees.",
+      "Discover arbitrary package files, build-script I/O/environment, authenticate publishers or promise transactional exports/hot reload.",
+      "Release/deploy, migrate consumer source, change protected policy or complete Docs adoption."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 60,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 5,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 2
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Optional resources list uses canonical package-relative POSIX file paths under src/artifact-package; reject duplicates, symlinks, escape, reserved native/manifest/code destinations before compilers. Reuse private path validation across builder/runtime. Build_ext get_source_files includes declared resources in sdist and run copies them into fresh wheel; append unique source inputs to digest. Emit sorust.artifacts/v2 with resources only for opted-in consumers; old v1 without resources remains supported and old runtime rejects v2. Verify/export includes declared resource hashes and snapshot rechecks. Add --manifest-resources mode to the pinned NL pilot; no manual sidecar copy in that mode, verify drift rejection and run the same original conformance/parity tests.",
+      "components": [
+        {
+          "name": "resource-aware-dual-artifact-contract",
+          "paths": [
+            "src/sorust/backend.py",
+            "src/sorust/__init__.py"
+          ]
+        },
+        {
+          "name": "regression-and-real-consumer-proof",
+          "paths": [
+            "tests/test_resources.py",
+            "tests/benchmark_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "sorust.artifacts/v2 requires resources list; source digest includes declared resource bytes. v1 format emitted unchanged without resources."
+      ],
+      "interfaceChanges": [
+        "Optional tool.sorust.resources package-relative list",
+        "Resource-aware manifestv2; verification/export retain signatures"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; new readers support old manifests, v2 consumers require resource-aware Sorust pin and must not downgrade; preserve old dist, baseline/validation/pilot receipts and ignored data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_resources.py"
+        ],
+        "evidence": "Safe/malformed/missing/link/reserved-path inputs rejected before compilation; optional and legacy manifest behavior; v2 drift/missing/duplicate/path/parent-symlink rejection and snapshot-before-output; actual consumer sdist/wheel/resource-only rebuild/export/minimal-runtime binary imports without package-data declarations."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation",
+          "python -I tests/benchmark_nl_dsl_pilot.py --consumer-root CONSUMER_CHECKOUT --manifest-resources --sorust-wheel WHEEL --rust-rlib RLIB --output .subactor/cache/resource-pilot --number 10"
+        ],
+        "evidence": "Full suites/final artifact install/export/hash smoke. Pinned actual NL module all3 modes/original8conformance functions each, resource automatically exported and audit rejects drift; no new speed claim. Real old reader rejects v2, new reader accepts legacy v1. Canonicalv18 metadata/index/source receipts."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Local and required remote gates, frozen independent approval/merge; postmerge smoke, owner CAS release, preserved exact checkout cleanup/audit."
+      }
+    ]
+  }
+}

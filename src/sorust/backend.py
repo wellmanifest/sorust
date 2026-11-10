@@ -15,12 +15,15 @@ import tempfile
 import tomllib
 from pathlib import Path
 
+from . import _resource_path
+
 
 def configuration(root: Path) -> dict:
     document = tomllib.loads((root / "pyproject.toml").read_text())
     config = document["tool"]["sorust"]
     expected = {"python-modules", "rust-manifest", "rust-library", "artifact-package", "abi-version"}
-    if set(config) != expected or config["abi-version"] != 1:
+    if (not expected.issubset(config) or set(config) - expected - {"resources"}
+            or config["abi-version"] != 1):
         raise ValueError("tool.sorust requires the v1 dual-artifact configuration")
     dotted = r"[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*"
     modules = config["python-modules"]
@@ -45,7 +48,26 @@ def configuration(root: Path) -> dict:
                 or not full.resolve().is_relative_to(root.resolve())):
             raise ValueError(f"missing or unsafe source: {path}")
     _build_script(root, config)
+    _resource_files(root, config)
     return config
+
+
+def _resource_files(root: Path, config: dict) -> list[Path]:
+    resources = config.get("resources", [])
+    if not isinstance(resources, list):
+        raise ValueError("resources must be a list of unique package-relative paths")
+    paths = [_resource_path(value) for value in resources]
+    if len(set(paths)) != len(paths):
+        raise ValueError("resources must contain unique paths")
+    package_root = root.joinpath("src", *config["artifact-package"].split("."))
+    files = []
+    for relative in sorted(paths):
+        full = package_root / relative
+        if (not full.is_file() or any(p.is_symlink() for p in [full, *full.parents])
+                or not full.resolve().is_relative_to(package_root.resolve())):
+            raise ValueError(f"missing or unsafe resource: {relative}")
+        files.append(full)
+    return files
 
 
 def _build_script(root: Path, config: dict) -> Path | None:
@@ -112,9 +134,17 @@ def _setup(wheel_staging: Path | None = None):
                 headers.append(header)
             paths = [("python-extension", Path(self.get_ext_fullpath(x)))
                      for x in config["python-modules"]] + [("rust-cdylib", destination)]
+            resources = []
+            source_package = root.joinpath("src", *package.split("."))
+            for source in _resource_files(root, config):
+                target = package_root / source.relative_to(source_package)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+                resources.append(target)
             rustc = subprocess.check_output(["rustc", "-vV"], text=True)
             manifest = {
-                "schema": "sorust.artifacts/v1", "abi_version": config["abi-version"],
+                "schema": "sorust.artifacts/v2" if resources else "sorust.artifacts/v1",
+                "abi_version": config["abi-version"],
                 "package": package, "python_soabi": sysconfig.get_config_var("SOABI"),
                 "platform": sysconfig.get_platform(), "rustc": rustc.strip(),
                 "source_sha256": _source_digest(root, config),
@@ -124,9 +154,17 @@ def _setup(wheel_staging: Path | None = None):
                                "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
                               for kind, path in paths],
             }
+            if resources:
+                manifest["resources"] = [{"path": path.relative_to(package_root).as_posix(),
+                                          "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+                                         for path in resources]
             manifest_path = package_root / "sorust-artifacts.json"
             manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
-            self.extra_outputs = [str(destination), str(manifest_path), *map(str, headers)]
+            self.extra_outputs = [str(destination), str(manifest_path), *map(str, headers + resources)]
+
+        def get_source_files(self):
+            return super().get_source_files() + [str(path.relative_to(root))
+                                               for path in _resource_files(root, config)]
 
         def get_outputs(self):
             return super().get_outputs() + getattr(self, "extra_outputs", [])
@@ -167,6 +205,7 @@ def _source_digest(root: Path, config: dict) -> str:
     script = _build_script(root, config)
     if script is not None and script not in files:
         files.append(script)
+    files += [path for path in _resource_files(root, config) if path not in files]
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.relative_to(root).as_posix().encode() + b"\0")

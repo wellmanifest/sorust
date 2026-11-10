@@ -81,7 +81,7 @@ def check_wheel(wheel, root, expected_manifest):
         manifest = json.loads(archive.read("sorust/sorust-artifacts.json"))
         if manifest != expected_manifest:
             raise ValueError("Sorust wheel must match the installed artifact manifest")
-        for item in manifest["artifacts"] + manifest["headers"]:
+        for item in manifest["artifacts"] + manifest["headers"] + manifest.get("resources", []):
             if digest(archive.read("sorust/" + item["path"])) != item["sha256"]:
                 raise ValueError("Sorust wheel contains mismatched native artifact bytes")
 
@@ -255,6 +255,9 @@ rust-library = "sorust_kernel"
 artifact-package = "standard"
 abi-version = 1
 ''')
+    if args.manifest_resources:
+        config = project / "pyproject.toml"
+        config.write_text(config.read_text() + 'resources = ["semantic-profile.json"]\n')
     (project / "MANIFEST.in").write_text("recursive-include crates *.toml *.lock *.rs\nrecursive-include include *.h\nrecursive-include src *.py *.json\n")
     build_seconds = execute([sys.executable, "-I", "-m", "build", "--no-isolation",
                              "--outdir", run / "wheels", project], ROOT, run / "build.log")
@@ -283,9 +286,29 @@ abi-version = 1
                               "import sys;sys.path.insert(0,sys.argv[1]);import standard.nl_dsl_llm",
                               str(run / "exported")], cwd=ROOT, env=env, text=True, capture_output=True, timeout=60)
     (run / "bare-export.log").write_text(missing.stdout + missing.stderr)
-    assert missing.returncode != 0 and "FileNotFoundError" in missing.stderr and "semantic-profile.json" in missing.stderr
-    with (bundle / "semantic-profile.json").open("xb") as sidecar:
-        sidecar.write(inputs["standard/semantic-profile.json"])
+    resource_drift_rejected = False
+    if args.manifest_resources:
+        assert missing.returncode == 0, missing.stderr
+        assert consumer_manifest["schema"] == "sorust.artifacts/v2"
+        assert consumer_manifest["resources"] == [{"path": "semantic-profile.json",
+                                                   "sha256": digest(inputs["standard/semantic-profile.json"])}]
+        resource = bundle / "semantic-profile.json"
+        original = resource.read_bytes()
+        assert original == inputs["standard/semantic-profile.json"]
+        try:
+            resource.write_bytes(original + b"\n ")
+            try:
+                sorust.verify_artifacts(bundle)
+            except sorust.NativeArtifactError:
+                resource_drift_rejected = True
+            assert resource_drift_rejected, "resource drift accepted"
+        finally:
+            resource.write_bytes(original)
+        assert sorust.verify_artifacts(bundle) == consumer_manifest
+    else:
+        assert missing.returncode != 0 and "FileNotFoundError" in missing.stderr and "semantic-profile.json" in missing.stderr
+        with (bundle / "semantic-profile.json").open("xb") as sidecar:
+            sidecar.write(inputs["standard/semantic-profile.json"])
     rust_artifact = next(x for x in manifest["artifacts"] if x["kind"] == "rust-cdylib")
     module_artifact = next(x for x in consumer_manifest["artifacts"] if x["path"].startswith("nl_dsl_llm."))
     write_json(run / "run.json", {"number": args.number, "rustArtifact": rust_artifact,
@@ -321,7 +344,10 @@ abi-version = 1
               "inputs": {"queries": QUERIES, "commands": COMMANDS, "readQueries": READ_QUERIES},
               "modes": observations, "wheelSpeedup": speeds,
               "rlibReuse": {"sha256": digest(args.rust_rlib.read_bytes()), "rustc": rustc, "panic": "abort", "result": [3, 3, 0]},
-              "bareExportMissingConsumerResource": True, "explicitSidecarSha256": digest(inputs["standard/semantic-profile.json"]),
+              "resourceMode": "manifest" if args.manifest_resources else "manual-sidecar",
+              "declaredResourceDriftRejected": resource_drift_rejected,
+              "bareExportMissingConsumerResource": not args.manifest_resources,
+              "explicitSidecarSha256": None if args.manifest_resources else digest(inputs["standard/semantic-profile.json"]),
               "method": "Separate minimal-runtime processes, 7 warmed timeit series per mode, list/result creation included. FFI includes UTF-8 encoding, joining, lengths and owned outputs. Preparation/build/import excluded. Fixed fixture-derived corpus, no CPU affinity, no production/LLM traffic or speed threshold. cProfile covers parser calls; native internals are opaque. Unicode split and Rust ASCII counting remain different contracts."}
     write_json(run / "result.json", result)
     print(json.dumps({"report": str(run / "result.json"), "wheelSpeedup": speeds,
@@ -336,6 +362,8 @@ def main(argv=None):
     parser.add_argument("--rust-rlib", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--number", type=int, default=1000)
+    parser.add_argument("--manifest-resources", action="store_true",
+                        help="declare, verify and export the consumer JSON with manifest v2")
     parser.add_argument("--worker", choices=["source", "wheel", "exported"], help=argparse.SUPPRESS)
     parser.add_argument("--run-root", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--report", type=Path, help=argparse.SUPPRESS)
