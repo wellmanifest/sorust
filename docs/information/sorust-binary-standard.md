@@ -82,7 +82,10 @@
     "https://github.com/wellmanifest/sorust/blob/9cd707bff4ab5c71d2e53f35eefd807467d6822f/tests/benchmark_nl_dsl_pilot.py",
     "https://github.com/wellmanifest/sorust/blob/9cd707bff4ab5c71d2e53f35eefd807467d6822f/tests/test_nl_dsl_pilot.py",
     "https://github.com/wellmanifest/nl-dsl-llm/blob/aa47c8752f1ea446208f6dfb7a018ad02e92250a/standard/nl_dsl_llm.py",
-    "receipt:sorust.nl-dsl-build-baseline.16e802b"
+    "receipt:sorust.nl-dsl-build-baseline.16e802b",
+    "receipt:sorust.nl-pilot-targeted.9cd707b",
+    "receipt:sorust.nl-pilot-validation.9cd707b",
+    "receipt:sorust.nl-pilot-practical.9cd707b"
   ]
 }
 ---
@@ -184,6 +187,22 @@ Korekta odcisku skryptu Cargo w źródle `f1e93f11bfba382cd55fd268d908047c508938
 Walidacja źródła: 17 testów celowanych PASS (211,26 s), pełny zestaw 121 testów pytest PASS (345,51 s) i 5 testów Cargo PASS. Testy domyślnego skryptu, jawnego `true`, własnej lokalizacji i ścieżki do współdzielonego pliku budują sdist → wheel dwukrotnie; zmiana wyłącznie skryptu zmienia odcisk, hash biblioteki i rzeczywisty wynik Rust. Osobne procesy ładują oddzielne pliki, bez zapisu do mapowanej biblioteki. Sprawdzane są obecność skryptu w sdist i sumy wszystkich artefaktów. Dalsze przypadki obejmują brak/wyłączenie skryptu, błędne typy, brak jawnego wejścia, katalog, ścieżki absolutne/wychodzące poza projekt i symlinki pliku/rodzica, z odmową przed utworzeniem `build`. Receipty: `receipt:sorust.build-script-targeted.f1e93f1`, `receipt:sorust.build-script-validation.f1e93f1`. Runtime, jądro, nagłówek i ABI zachowują bajty bazy; zmienił się backend budowania i testy.
 
 Pilot deweloperski w źródle `9cd707bff4ab5c71d2e53f35eefd807467d6822f` rozszerza walidację backendu Sorust o rzeczywisty, niezmieniony moduł normatywny `standard/nl_dsl_llm.py` z przypiętego wejścia `wellmanifest/nl-dsl-llm@aa47c8752f1ea446208f6dfb7a018ad02e92250a`. Nie modyfikuje repozytorium konsumenta ani jego kanonicznej specyfikacji. Buduje lokalną dystrybucję próbną `sorust-nl-dsl-pilot==0.0.0` z nakładką PEP 517; nie stanowi migracji lub wydania właściwego projektu. Wersja 17 zachowuje historyczne ustalenia wersji 16.
+
+Walidacja narzędzia: 19 testów pilota PASS (1,65 s), 121 niezmienionych regresji rdzenia Sorust PASS i 5 testów Cargo PASS. Pełne wywołanie pytest na `8af2e367d892d499330fc11b794db3754152d0e3` dało 138 PASS (501,89 s); późniejsze wzmocnienie powiązania wejściowego wheel-a z faktycznie reużytymi bajtami binarek pokrywa komplet 19 testów na `9cd707bff4ab5c71d2e53f35eefd807467d6822f`. Źródła i testy rdzenia pozostały identyczne. Łącznie pokryto 140 unikalnych aktualnych przypadków; nie oznaczamy tego jako pojedynczego przebiegu 140 testów na końcowym HEAD. Receipt `receipt:sorust.nl-pilot-validation.9cd707b` wiąże oba XML, rewizje i sprawdzenie niezmienności.
+
+Końcowy pilot na checkout `b7731eae9cd88b50eb2ea3680e5cb7cc457a3ebe`, z identycznymi bajtami skryptu `9cd707b…`, przeszedł po 8 oryginalnych testów zgodności w każdym z trzech trybów. Zgodne są obserwacje parsera, serializacji i wyników mostka; hashe `.so` w wheel-u i eksporcie są identyczne. Działa wspólna wyeksportowana biblioteka Rust oraz osobny klient `.rlib` z wynikiem `3 3 0`. Obiecanego zasobu JSON brakuje w samym eksporcie binarek, a jawne dostarczenie przypiętego pliku przywraca działanie. Raport SHA-256 `cf44cbf094b34c5f0c350e2dfb3a89786c174267cbe25c5f21d2920dec6ff483`, receipt `receipt:sorust.nl-pilot-practical.9cd707b`, wiąże wejścia, binarki i pełne serie.
+
+Pomiary pilota na Linux x86_64 / CPython 3.13.12: mediana siedmiu rozgrzanych serii po 1000 powtórzeń całego wskazanego korpusu, w µs na korpus. Wszystkie trzy procesy pracują w tym samym minimalnym venv, kolejno po zakończeniu testów i kompilacji tego zadania.
+
+| Korpus | Źródło Python | Wheel `.so` | Eksport `.so` |
+| --- | ---: | ---: | ---: |
+| Parser, 15 wejść | 3253,33 | 3033,93 | 3171,53 |
+| Parse → canonical, 5 poleceń | 25,57 | 24,22 | 31,60 |
+| Mostek, 4 żądania w pamięci | 407,39 | 383,13 | 236,62 |
+
+Ilorazy median source/wheel wynoszą odpowiednio 1,072×, 1,056× i 1,063×. Rozrzut jest duży: parser source 3071,70–5189,93 µs, wheel 1059,05–4900,61 µs; ten sam kod `.so` daje również różne wyniki wheel/export. Ten pomiar nie ustala wiarygodnej przewagi czasowej 6–7% ani przewagi eksportu. Potwierdza pakowanie i zgodność konkretnego modułu; zysku w produkcji nie zmierzono. W profilu 15000 wywołań parsera wystąpiło 471000 `re.search` i 465000 `re.escape`; samo przeniesienie otaczającego kodu do Cython nie usuwa tej pracy.
+
+Dla tego samego zgodnego podzbioru krótkich wejść, w procesie wheel-a, Rust batch z UTF-8 i przygotowaniem buforów miał medianę 13,85 µs, a Python `split()` 3,33 µs — około 4,16× krócej po stronie Python. W pozostałych dwóch procesach narzut Rust wyniósł około 3,10× i 4,07×. To pomiar granicy wywołania na małych danych, nie samej pętli Rust ani długich buforów. Cztery próby separatorów Unicode dały Python=2 i Rust=1, z zachowaniem argumentu `status=OPEN` przez oryginalny parser. Pilot nie zmienia algorytmu konsumenta ani nie podstawia niezgodnej semantyki.
 
 <!-- docs:section content -->
 ## Content
