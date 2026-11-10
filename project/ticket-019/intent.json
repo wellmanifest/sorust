@@ -1,0 +1,106 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-019",
+  "summary": "Reproduce Cargo source component reuse on pinned NL code",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-019/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "tests/benchmark_nl_dsl_pilot.py",
+    "tests/test_nl_dsl_pilot.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "ce66211b3eba70f97254689d1f6a99c5cdc8870d",
+    "targetBranch": "main",
+    "outcome": "Reproduce source-only Rust producer and isolated Python NL consumer with committed developer pilot, canonical documentation and independent protected merge.",
+    "nonGoals": [
+      "No runtime/backend/algorithm/ABI/schema/runtime dependency/platform changes, consumer repository edits, downloads, speed guarantee, registry release or deployment."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 85,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 1
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Add optional source-rust-component pilot mode requiring prebuilt-rust/build-wheelhouse and excluding repack mode. Snapshot exact committed kernel source; production sorust.rust_backend builds native source sdist then wheel in offline isolated environments without Cython wheel inputs. Share input snapshot/fresh frontend and tool policy with consumer mode; assert native producer frontend absence and exact source provenance. Consumer declares generated native wheel dependency and uses Rust-free isolated build. Report actual donor manifest and check bytes/C ABI/export/NL24/rlib; preserve all prior modes.",
+      "components": [
+        {
+          "name": "source-producer-pilot",
+          "paths": [
+            "tests/benchmark_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "pilot-regressions",
+          "paths": [
+            "tests/test_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "Additive pilot report producer provenance, existing manifest schema unchanged."
+      ],
+      "interfaceChanges": [
+        "Optional developer CLI --source-rust-component"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; preserve previous modes/artifacts and ignored run outputs."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_nl_dsl_pilot.py"
+        ],
+        "evidence": "Mode guards before input effects, stale native backend, source pin/filter safety, actual producer and isolated consumer evidence."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python tests/benchmark_nl_dsl_pilot.py --source-rust-component --prebuilt-rust --build-wheelhouse LOCAL --manifest-resources --number 10"
+        ],
+        "evidence": "Full suites, actual pinned NL24/source sdist-wheel/Cython-free producer/Rust-free consumer/standalone/metadata/C ABI/rlib; canonicalv23 indexed and pinned Docs check."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "independent protected exact-head delivery"
+        ],
+        "evidence": "Exact-head local/remote checks and independent approval/merge, postmerge artifacts and current owner release/preserved cleanup."
+      }
+    ]
+  }
+}

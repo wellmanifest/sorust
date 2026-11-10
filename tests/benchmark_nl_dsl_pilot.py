@@ -36,6 +36,8 @@ ROOT = Path(__file__).resolve().parents[1]
 REVISION = "aa47c8752f1ea446208f6dfb7a018ad02e92250a"
 FILES = ("standard/__init__.py", "standard/nl_dsl_llm.py",
          "standard/semantic-profile.json", "standard/test_conformance.py", "LICENSE")
+KERNEL_FILES = ("crates/sorust-kernel/Cargo.toml", "crates/sorust-kernel/Cargo.lock",
+                "crates/sorust-kernel/src/lib.rs", "include/sorust.h")
 QUERIES = ["pokaż otwarte zadania", "wypisz otwarte tickety", "wyświetl zadania",
            "show open tickets", "list open tasks", "display tickets", "ticket.list",
            "ticket.list status=OPEN", "nie sprawdzaj stanu klastra produkcyjnego",
@@ -77,7 +79,7 @@ def new_output(root, requested):
 
 def check_wheel(wheel, root, expected_manifest):
     with zipfile.ZipFile(wheel) as archive:
-        for name in ["__init__.py", "backend.py"]:
+        for name in ["__init__.py", "backend.py", "rust_backend.py"]:
             if archive.read("sorust/" + name) != (root / "src/sorust" / name).read_bytes():
                 raise ValueError("Sorust wheel must match this checkout's runtime and backend")
         manifest = json.loads(archive.read("sorust/sorust-artifacts.json"))
@@ -100,7 +102,7 @@ def execute(args, cwd, log, *, environment=None, timeout=600):
     return time.perf_counter() - started
 
 
-def snapshot_wheelhouse(source, destination, sdk, extra_wheels=()):
+def snapshot_wheelhouse(source, destination, sdk, extra_wheels=(), *, exclude_cython=False):
     """Freeze explicit local wheel inputs before pip sees them."""
     source = source.absolute()
     if (".." in source.parts or not source.is_dir()
@@ -118,6 +120,9 @@ def snapshot_wheelhouse(source, destination, sdk, extra_wheels=()):
                 or path.name in payload):
             raise ValueError("generated component wheel must be regular and must not replace an input")
         payload[path.name] = path.read_bytes()
+    if exclude_cython:
+        payload = {name: data for name, data in payload.items()
+                   if name.split("-", 1)[0].casefold() != "cython"}
     destination.mkdir()  # Preserve previous snapshots; never merge or replace them.
     for name, data in payload.items():
         (destination / name).write_bytes(data)
@@ -144,38 +149,117 @@ def c_build_path(run, environment):
     return tools
 
 
-def isolated_frontend(run, wheelhouse, sdk, environment, extra_wheels=()):
-    inventory = snapshot_wheelhouse(wheelhouse, run / "wheelhouse", sdk, extra_wheels)
+def frontend_probe(python, environment, log, *, rust_tools=False):
+    probe = '''import importlib.util, importlib.metadata, json, shutil, sys
+absent = {name: importlib.util.find_spec(name) is None for name in ["sorust", "Cython", "setuptools", "wheel"]}
+assert all(absent.values()), absent
+rust = {name: shutil.which(name) is not None for name in ["cargo", "rustc"]}
+assert rust == dict.fromkeys(rust, json.loads(sys.argv[1])), rust
+for distribution in ["sorust-kernel-component-pilot", "sorust-source-kernel-pilot"]:
+    try:
+        importlib.metadata.distribution(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        pass
+    else:
+        raise AssertionError("ambient component distribution: " + distribution)
+print(json.dumps({"absentBeforeBuild": absent, "rustToolsAvailableBeforeBuild": rust,
+                  "componentDistributionAbsentBeforeBuild": True,
+                  "frontend": importlib.metadata.version("build")}))
+'''
+    execute([python, "-I", "-c", probe, json.dumps(rust_tools)], ROOT, log,
+            environment=environment)
+    return json.loads(log.read_text())
+
+
+def isolated_frontend(run, wheelhouse, sdk, environment, extra_wheels=(), *,
+                      rust_tools=False, exclude_cython=False):
+    inventory = snapshot_wheelhouse(wheelhouse, run / "wheelhouse", sdk, extra_wheels,
+                                    exclude_cython=exclude_cython)
     # Pip configuration and caches must not provide alternate dependency sources.
     env = {key: value for key, value in environment.items() if not key.startswith("PIP_")}
     env.update(PIP_CONFIG_FILE=os.devnull, PIP_NO_INDEX="1", PIP_NO_CACHE_DIR="1",
                PIP_FIND_LINKS=(run / "wheelhouse").as_uri(), PIP_ONLY_BINARY=":all:",
                PIP_DISABLE_PIP_VERSION_CHECK="1")
-    env["PATH"] = str(c_build_path(run, environment))
+    if not rust_tools:
+        env["PATH"] = str(c_build_path(run, environment))
     builder = run / "builder"
     venv.EnvBuilder(with_pip=True, symlinks=False).create(builder)
     python = builder / "bin/python"
     execute([python, "-I", "-m", "pip", "install", "build"], ROOT,
             run / "frontend-install.log", environment=env)
-    probe = '''import importlib.util, importlib.metadata, json, shutil
-absent = {name: importlib.util.find_spec(name) is None for name in ["sorust", "Cython", "setuptools"]}
-assert all(absent.values()), absent
-rust = {name: shutil.which(name) is not None for name in ["cargo", "rustc"]}
-assert not any(rust.values()), rust
-try:
-    importlib.metadata.distribution("sorust-kernel-component-pilot")
-except importlib.metadata.PackageNotFoundError:
-    component_absent = True
-else:
-    component_absent = False
-assert component_absent
-print(json.dumps({"absentBeforeBuild": absent, "rustToolsAvailableBeforeBuild": rust,
-                  "componentDistributionAbsentBeforeBuild": component_absent,
-                  "frontend": importlib.metadata.version("build")}))
-'''
-    execute([python, "-I", "-c", probe], ROOT, run / "frontend-probe.json", environment=env)
-    observed = json.loads((run / "frontend-probe.json").read_text())
+    observed = frontend_probe(python, env, run / "frontend-probe.json", rust_tools=rust_tools)
     return python, env, {"wheels": inventory, **observed}
+
+
+def source_component_wheel(run, revision, sdk, wheelhouse):
+    """Build the pinned kernel through the production Rust-only source backend."""
+    import sorust
+    from sorust import backend, rust_backend
+
+    stage = run / "source-producer"
+    stage.mkdir()
+    project = stage / "project"
+    sources = snapshot(ROOT, revision, KERNEL_FILES)
+    for name, data in sources.items():
+        target = project / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+    distribution, package, version = "sorust-source-kernel-pilot", "sorust_source_kernel_pilot", "0.0.0"
+    sdk_version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+    (project / "pyproject.toml").write_text(f'''[build-system]
+requires = ["sorust=={sdk_version}", "setuptools>=77", "wheel>=0.45"]
+build-backend = "sorust.rust_backend"
+[project]
+name = "{distribution}"
+version = "{version}"
+requires-python = ">=3.11"
+[tool.sorust]
+rust-manifest = "crates/sorust-kernel/Cargo.toml"
+rust-library = "sorust_kernel"
+artifact-package = "{package}"
+abi-version = 1
+''')
+    python, env, inputs = isolated_frontend(stage, wheelhouse, sdk, dict(os.environ),
+                                           rust_tools=True, exclude_cython=True)
+    output = stage / "dist"
+    seconds = execute([python, "-I", "-m", "build", "--outdir", output, project], ROOT,
+                      stage / "build.log", environment=env)
+    after = frontend_probe(python, env, stage / "frontend-after.json", rust_tools=True)
+    assert (stage / "build.log").read_text().count("Creating isolated environment:") == 2
+    wheel, = output.glob("*.whl")
+    sdist, = output.glob("*.tar.gz")
+    with zipfile.ZipFile(wheel) as archive:
+        assert not any(name.endswith((".py", ".pyc", ".pyd")) for name in archive.namelist())
+        raw = archive.read(package + "/sorust-artifacts.json")
+        manifest = json.loads(raw)
+        root = stage / "unpacked" / package
+        root.mkdir(parents=True)
+        (root / "sorust-artifacts.json").write_bytes(raw)
+        for item in manifest["artifacts"] + manifest["headers"]:
+            path = Path(item["path"])
+            if path.is_absolute() or ".." in path.parts:
+                raise ValueError("unsafe source component member")
+            target = root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(package + "/" + item["path"]))
+    assert sorust.verify_artifacts(root) == manifest
+    assert manifest["schema"] == "sorust.rust-component/v1"
+    assert manifest["source_sha256"] == backend._source_digest(project, rust_backend.configuration(project))
+    tag = "py3-none-" + manifest["platform"].replace("-", "_").replace(".", "_")
+    assert wheel.name.endswith("-" + tag + ".whl")
+    sorust.export_artifacts(run / "shared-kernel", package_dir=root)
+    descriptor = {"distribution": distribution, "version": version, "package": package,
+                  "manifest-sha256": digest(raw)}
+    return wheel, descriptor, {"file": wheel.name, "sha256": digest(wheel.read_bytes()),
+                               "tag": tag, "manifest": manifest, "descriptor": descriptor,
+                               "pythonPayloadAbsent": True, "producer": {
+                                   "mode": "cargo-source-pep517-offline", "sourceRevision": revision,
+                                   "sourceFiles": {name: digest(data) for name, data in sources.items()},
+                                   "sourcePyprojectSha256": digest((project / "pyproject.toml").read_bytes()),
+                                   "sdist": {"file": sdist.name, "sha256": digest(sdist.read_bytes())},
+                                   "isolatedBuildInputs": inputs, "frontendAfterBuild": after,
+                                   "cythonWheelInputsExcluded": True, "isolatedEnvironments": 2,
+                                   "buildSeconds": seconds}}
 
 
 def native_component_wheel(run, manifest, sdk_root):
@@ -337,6 +421,11 @@ def pilot(args):
     if args.build_wheelhouse is not None and not args.prebuilt_rust:
         raise ValueError("build-wheelhouse requires --prebuilt-rust")
     native_only = getattr(args, "native_only_component", False)
+    source_component = getattr(args, "source_rust_component", False)
+    if source_component and native_only:
+        raise ValueError("source-rust-component and native-only-component are mutually exclusive")
+    if source_component and (not args.prebuilt_rust or args.build_wheelhouse is None):
+        raise ValueError("source-rust-component requires --prebuilt-rust and --build-wheelhouse")
     if native_only and (not args.prebuilt_rust or args.build_wheelhouse is None):
         raise ValueError("native-only-component requires --prebuilt-rust and --build-wheelhouse")
     inputs = snapshot(args.consumer_root, args.revision)
@@ -345,8 +434,10 @@ def pilot(args):
     if not args.rust_rlib.is_file() or args.rust_rlib.is_symlink():
         raise ValueError("rust-rlib must be a regular prebuilt library")
     import sorust.backend
+    import sorust.rust_backend
     assert Path(sorust.__file__).read_bytes() == (ROOT / "src/sorust/__init__.py").read_bytes()
     assert Path(sorust.backend.__file__).read_bytes() == (ROOT / "src/sorust/backend.py").read_bytes()
+    assert Path(sorust.rust_backend.__file__).read_bytes() == (ROOT / "src/sorust/rust_backend.py").read_bytes()
     rustc = subprocess.check_output(["rustc", "-vV"], text=True).strip()
     if rustc != manifest["rustc"]:
         raise ValueError("rlib consumer requires the Sorust artifact's exact Rust toolchain")
@@ -363,9 +454,7 @@ def pilot(args):
         (package / name).write_bytes(inputs["standard/" + name])
     (project / "LICENSE").write_bytes(inputs["LICENSE"])
     own_revision = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip()
-    own_files = ["crates/sorust-kernel/Cargo.toml", "crates/sorust-kernel/Cargo.lock",
-                 "crates/sorust-kernel/src/lib.rs", "include/sorust.h"]
-    for name, data in ({} if args.prebuilt_rust else snapshot(ROOT, own_revision, own_files)).items():
+    for name, data in ({} if args.prebuilt_rust else snapshot(ROOT, own_revision, KERNEL_FILES)).items():
         target = project / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -400,14 +489,19 @@ abi-version = 1
             manifest_pin = digest(archive.read("sorust/sorust-artifacts.json"))
         descriptor = {"distribution": "sorust", "version": version, "package": "sorust",
                       "manifest-sha256": manifest_pin}
-        if native_only:
+        if source_component:
+            component_wheel, descriptor, component_info = source_component_wheel(
+                run, own_revision, args.sorust_wheel, args.build_wheelhouse)
+            component_wheels.append(component_wheel)
+            manifest_pin = descriptor["manifest-sha256"]
+        elif native_only:
             component_wheel, descriptor, component_info = native_component_wheel(
                 run, manifest, Path(sorust.__file__).parent)
             component_wheels.append(component_wheel)
             manifest_pin = descriptor["manifest-sha256"]
         config = project / "pyproject.toml"
         text = config.read_text().replace('rust-manifest = "crates/sorust-kernel/Cargo.toml"\n', '')
-        if native_only:
+        if native_only or source_component:
             requirement = descriptor["distribution"] + "==" + descriptor["version"]
             text = text.replace("requires = [", "requires = [" + json.dumps(requirement) + ", ", 1)
         text += '\n[tool.sorust.rust-component]\n' + ''.join(
@@ -440,15 +534,18 @@ abi-version = 1
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(archive.read(name))
     consumer_manifest = sorust.verify_artifacts(unpacked / "standard")
+    shared_manifest = component_info["manifest"] if source_component else manifest
     if args.prebuilt_rust:
         assert consumer_manifest["rust_component"]["manifest_sha256"] == manifest_pin
-        assert consumer_manifest["rustc"] == manifest["rustc"]
-        assert consumer_manifest["headers"] == manifest["headers"]
+        assert consumer_manifest["rustc"] == shared_manifest["rustc"]
+        assert consumer_manifest["headers"] == shared_manifest["headers"]
+        assert consumer_manifest["rust_component"]["source_sha256"] == shared_manifest["source_sha256"]
         assert next(x for x in consumer_manifest["artifacts"] if x["kind"] == "rust-cdylib") == next(
-            x for x in manifest["artifacts"] if x["kind"] == "rust-cdylib")
+            x for x in shared_manifest["artifacts"] if x["kind"] == "rust-cdylib")
     (run / "exported").mkdir()
     bundle = sorust.export_artifacts(run / "exported/standard", package_dir=unpacked / "standard")
-    sorust.export_artifacts(run / "shared-kernel")
+    if not source_component:
+        sorust.export_artifacts(run / "shared-kernel")
     runtime = run / "runtime"
     venv.EnvBuilder(with_pip=True, symlinks=False).create(runtime)
     python = runtime / "bin/python"
@@ -483,7 +580,7 @@ abi-version = 1
         assert missing.returncode != 0 and "FileNotFoundError" in missing.stderr and "semantic-profile.json" in missing.stderr
         with (bundle / "semantic-profile.json").open("xb") as sidecar:
             sidecar.write(inputs["standard/semantic-profile.json"])
-    rust_artifact = next(x for x in manifest["artifacts"] if x["kind"] == "rust-cdylib")
+    rust_artifact = next(x for x in shared_manifest["artifacts"] if x["kind"] == "rust-cdylib")
     module_artifact = next(x for x in consumer_manifest["artifacts"] if x["path"].startswith("nl_dsl_llm."))
     write_json(run / "run.json", {"number": args.number, "rustArtifact": rust_artifact,
                                   "profileSha256": digest(inputs["standard/semantic-profile.json"]),
@@ -513,7 +610,7 @@ abi-version = 1
               "scriptSha256": digest(Path(__file__).read_bytes()), "consumerRevision": args.revision,
               "consumerFiles": {name: digest(data) for name, data in inputs.items()},
               "sorustWheelSha256": digest(args.sorust_wheel.read_bytes()), "consumerWheelSha256": digest(wheel.read_bytes()),
-              "consumerManifest": consumer_manifest, "sharedRustManifest": manifest,
+              "consumerManifest": consumer_manifest, "sharedRustManifest": shared_manifest,
               "buildSeconds": build_seconds, "observationsSha256": parity_sha,
               "inputs": {"queries": QUERIES, "commands": COMMANDS, "readQueries": READ_QUERIES},
               "modes": observations, "wheelSpeedup": speeds,
@@ -551,6 +648,8 @@ def main(argv=None):
                         help="with --prebuilt-rust, use a fresh frontend and isolated PEP517 with only these local wheels")
     parser.add_argument("--native-only-component", action="store_true",
                         help="with prebuilt/isolated mode, package and consume a Python-free Rust wheel")
+    parser.add_argument("--source-rust-component", action="store_true",
+                        help="with prebuilt/isolated mode, build Rust sources without Cython before NL reuse")
     parser.add_argument("--worker", choices=["source", "wheel", "exported"], help=argparse.SUPPRESS)
     parser.add_argument("--run-root", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--report", type=Path, help=argparse.SUPPRESS)
