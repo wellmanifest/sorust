@@ -76,7 +76,9 @@
     "https://github.com/wellmanifest/sorust/blob/f1e93f11bfba382cd55fd268d908047c5089387d/src/sorust/backend.py",
     "https://github.com/wellmanifest/sorust/blob/f1e93f11bfba382cd55fd268d908047c5089387d/tests/test_build.py",
     "receipt:sorust.build-script-baseline.ea3b05b",
-    "https://doc.rust-lang.org/cargo/reference/manifest.html#the-build-field"
+    "https://doc.rust-lang.org/cargo/reference/manifest.html#the-build-field",
+    "receipt:sorust.build-script-targeted.f1e93f1",
+    "receipt:sorust.build-script-validation.f1e93f1"
   ]
 }
 ---
@@ -174,6 +176,8 @@ Porównanie publicznych API w jednym wheel-u, osobny minimalny venv na Linux x86
 Cel ≥20× dla 64 B został osiągnięty (6384,7× w tym pomiarze). Porównywane API mają różny jawny moment audytu: public scalar ponawia sprawdzanie, prepared wykorzystuje wcześniej zweryfikowane wiązanie. To nie jest przyspieszenie tej samej polityki odczytu plików ani całego procesu `nl-*`. Mediana osobno mierzonego przygotowania po rozgrzaniu wyniosła 1,514 ms dla compiled-python i 1,238 ms dla Rust; zimnego ładowania nie mierzono. Rust dla 64 B dał 2,184 µs public i 2,143 µs prepared; nie deklaruje się nowego przyspieszenia dla Rust. Brak przypięcia CPU, małe powtarzane bufory i zmienność próbek ograniczają wniosek do tej lokalnej procedury. Receipt `receipt:sorust.prepared-counter-performance.db0851e` wiąże dokładny wheel, manifest, digest skryptu i wszystkie próbki. Pomiary wykonano po zakończeniu pełnego zestawu testów; próg nie jest bramą czasową CI.
 
 Korekta odcisku skryptu Cargo w źródle `f1e93f11bfba382cd55fd268d908047c5089387d`: na bazie `ea3b05b39810b0add6b8d21e3fbd486d9432b96d` dwie budowy zmieniające wyłącznie `build.rs` dały różne biblioteki Rust i wynik funkcji 49 → 50, ale identyczny `source_sha256` (`88ab6ec654dfd6103fcdebdaf4e273376490bedc301de9cfc0e46304cbfe65f3`). Receipt `receipt:sorust.build-script-baseline.ea3b05b` wiąże oba wheel-e, skrypty i wynik osobnych procesów. Sumy samych artefaktów działały poprawnie; brak dotyczył zestawu źródeł manifestu. Wersja 16 zachowuje historyczne ustalenia wersji 15 i uzupełnia kontrakt źródeł.
+
+Walidacja źródła: 17 testów celowanych PASS (211,26 s), pełny zestaw 121 testów pytest PASS (345,51 s) i 5 testów Cargo PASS. Testy domyślnego skryptu, jawnego `true`, własnej lokalizacji i ścieżki do współdzielonego pliku budują sdist → wheel dwukrotnie; zmiana wyłącznie skryptu zmienia odcisk, hash biblioteki i rzeczywisty wynik Rust. Osobne procesy ładują oddzielne pliki, bez zapisu do mapowanej biblioteki. Sprawdzane są obecność skryptu w sdist i sumy wszystkich artefaktów. Dalsze przypadki obejmują brak/wyłączenie skryptu, błędne typy, brak jawnego wejścia, katalog, ścieżki absolutne/wychodzące poza projekt i symlinki pliku/rodzica, z odmową przed utworzeniem `build`. Receipty: `receipt:sorust.build-script-targeted.f1e93f1`, `receipt:sorust.build-script-validation.f1e93f1`. Runtime, jądro, nagłówek i ABI zachowują bajty bazy; zmienił się backend budowania i testy.
 
 <!-- docs:section content -->
 ## Content
