@@ -47,7 +47,7 @@ def configuration(root: Path) -> dict:
     return config
 
 
-def _setup(build_lib: Path | None = None):
+def _setup(wheel_staging: Path | None = None):
     from Cython.Build import cythonize
     from setuptools import Extension, setup
     from setuptools.command.build_ext import build_ext
@@ -111,15 +111,22 @@ def _setup(build_lib: Path | None = None):
     extensions = [Extension(name, [str(Path("src", *name.split(".")).with_suffix(".py"))])
                   for name in config["python-modules"]]
     commands = {"build_ext": DualBuild}
-    if build_lib is not None:
+    if wheel_staging is not None:
         from setuptools.command.build import build
+        from setuptools.command.bdist_wheel import bdist_wheel
 
         class WheelBuild(build):
             def finalize_options(self):
                 super().finalize_options()
-                self.build_lib = str(build_lib)
+                self.build_lib = str(wheel_staging / "lib")
+
+        class WheelDistribution(bdist_wheel):
+            def finalize_options(self):
+                super().finalize_options()
+                self.bdist_dir = str(wheel_staging / "wheel")
 
         commands["build"] = WheelBuild
+        commands["bdist_wheel"] = WheelDistribution
     setup(ext_modules=cythonize(extensions, build_dir="build/cython", language_level=3),
           cmdclass=commands)
 
@@ -136,14 +143,14 @@ def _source_digest(root: Path, config: dict) -> str:
     return digest.hexdigest()
 
 
-def _backend(build_lib: Path | None = None):
+def _backend(wheel_staging: Path | None = None):
     from setuptools.build_meta import _BuildMetaBackend
 
     class Backend(_BuildMetaBackend):
         def run_setup(self, setup_script="setup.py"):
             if Path(setup_script).exists():
                 raise ValueError("Sorust consumers use pyproject.toml without setup.py")
-            _setup(build_lib)
+            _setup(wheel_staging)
 
     return Backend()
 

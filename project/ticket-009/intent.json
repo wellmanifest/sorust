@@ -41,7 +41,7 @@
     },
     "architecture": {
       "status": "accepted",
-      "decision": "Create a unique temporary build_lib beneath build for each wheel hook and select it through setuptools build command finalization. Route current Python and native outputs through that fresh staging tree; keep Cython/Cargo compiler caches and pre-existing build outputs untouched. Scope staging lifetime around the existing backend wheel hook, with cleanup on return/failure. Metadata/sdist use existing paths.",
+      "decision": "Create a unique temporary wheel staging directory beneath build; select its lib via setuptools build and its wheel installation root via bdist_wheel finalization. Route current Python/native/package outputs through this fresh tree, including after interrupted older packing; retain Cython/Cargo caches and pre-existing outputs untouched. Scope staging lifetime around the wheel hook. Metadata/sdist keep existing paths.",
       "components": [
         {
           "name": "wheel-backend",
@@ -79,7 +79,7 @@
         "commands": [
           "python -m pytest -q tests/test_build.py -k rebuild"
         ],
-        "evidence": "Actual two wheel-only builds in the same consumer build tree change compilation selection; former source changed/removed. Inspect exact wheel payload and manifest hashes, install second wheel and assert current Python/compiled import behavior."
+        "evidence": "Actual two wheel-only builds in same consumer build tree change compilation selection; former source changed/removed. Seed prior wheel package payload into conventional bdist staging to model interrupted older packaging. Inspect exact new wheel payload/manifest hashes, install it and assert current Python/compiled behavior."
       },
       {
         "criterion": "AC-02",

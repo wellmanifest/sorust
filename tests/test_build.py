@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tarfile
 import venv
 import zipfile
@@ -818,6 +819,14 @@ def test_consumer_wheel_rebuild_drops_stale_outputs(built, tmp_path, former_sour
     project, package, _ = external_project(tmp_path)
     first = tmp_path / "first"
     run([sys.executable, "-I", "-m", "build", "--wheel", "--no-isolation", "--outdir", first, project])
+    # Model an interrupted older packager leaving its installation payload behind.
+    old_staging = project / "build" / ("bdist." + sysconfig.get_platform()) / "wheel"
+    with zipfile.ZipFile(next(first.glob("*.whl"))) as archive:
+        for name in archive.namelist():
+            if name.startswith("nl_atomic_example/"):
+                target = old_staging / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(archive.read(name))
     config = project / "pyproject.toml"
     config.write_text(config.read_text().replace("nl_atomic_example._compat", "nl_atomic_example.untouched"))
     if former_source == "changed":
