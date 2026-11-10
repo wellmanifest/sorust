@@ -1,0 +1,108 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-013",
+  "summary": "Reproduce native reuse on pinned NL DSL consumer code",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-013/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "tests/benchmark_nl_dsl_pilot.py",
+    "tests/test_nl_dsl_pilot.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "16e802b5d16fba5372fc4333a4ed05a6a9bb8e7f",
+    "targetBranch": "main",
+    "outcome": "Deliver a repeatable Sorust-owned practical developer pilot using unmodified pinned NL DSL source, installed-wheel and standalone binary parity, explicit resource sidecar, shared prebuilt Rust cdylib/rlib consumers, and bounded honest measurements. Independently merge tool and canonical standard v17, preserve/release checkout.",
+    "nonGoals": [
+      "Migrate or modify consumer repositories, copy their implementation into tracked Sorust source, run production traffic, networks, LLM/API/service effects.",
+      "Change Sorust runtime/backend/kernel/ABI/dependencies/platform coverage or auto-export unmanifested data.",
+      "Claim arbitrary Python is faster, Unicode str.split compatibility, complete consumer conformance or general cross-repository architecture conclusions; release/deploy/protected policy changes."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 50,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 1
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "A stdlib developer script reads fixed consumer files via exact40hex Git commit into new private checkout-bound scratch, builds original package initializer/module with installed Sorust backend and unchanged Rust source snapshot, creates a minimal runtime without Sorust/Cython/toolchain and tests source, installed compiled and exported compiled modes in separate processes. Run pinned conformance functions, compare normalized results, 7 warmed timing series and profiles. Export sidecar failure is demonstrated then consumer resource is copied with explicit pinned hash. All modes share one prebuilt exported Rust .so; an independent Rust client links existing .rlib with exact toolchain. Include encoding/packing in FFI timing and report Unicode whitespace differences instead of substituting semantics.",
+      "components": [
+        {
+          "name": "repeatable-practical-pilot",
+          "paths": [
+            "tests/benchmark_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "pilot-regressions",
+          "paths": [
+            "tests/test_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "Sorust-developer-contract",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [
+        "Developer-only pilot CLI; runtime API unchanged"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; preserve original local artifacts, input/reuse/benchmark receipts and all ignored checkout data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_nl_dsl_pilot.py",
+          "python -I tests/benchmark_nl_dsl_pilot.py --consumer-root /home/tom/github/wellmanifest/nl-dsl-llm --revision aa47c8752f1ea446208f6dfb7a018ad02e92250a --sorust-wheel FILE --rust-rlib FILE --output PRIVATE"
+        ],
+        "evidence": "New scratch, revision/wheel/resource confinement validation; unchanged consumer files, real sdist/wheel and source/native/export parity; actual pinned conformance function results per mode; resource limitation and Unicode mismatch explicit; prebuilt shared Rust .so and .rlib reuse proven."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "All suites and final artifacts/install/export/hash smoke pass. Pilot reports pinned code/input/artifact hashes, environment, corpus,7 warmed timing samples, encoding/packing boundaries and profile; no speed threshold or production claim. Canonical v17 documents local tool and exact evidence."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Canonical metadata/index/tracking and pinned own Docs check; local and required remote gates, frozen exact-head independent approval/merge, postmerge smoke, released lease and preserved owned checkout cleanup/audit."
+      }
+    ]
+  }
+}
