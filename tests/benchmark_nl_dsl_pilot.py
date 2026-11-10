@@ -25,6 +25,7 @@ import shutil
 import statistics
 import subprocess
 import sys
+import sysconfig
 import time
 import timeit
 import tomllib
@@ -117,6 +118,26 @@ def snapshot_wheelhouse(source, destination, sdk):
     return [{"file": name, "sha256": digest(data)} for name, data in payload.items()]
 
 
+def c_build_path(run, environment):
+    """Expose C tools while Rust is unavailable, including to pip's probes."""
+    commands = {"cc", "gcc", "c++", "g++", "ar", "as", "ld", "ranlib", "strip", "nm", "objdump", "readelf"}
+    for key in ["CC", "CXX", "LDSHARED", "AR", "RANLIB"]:
+        commands.update(shlex.split(environment.get(key) or sysconfig.get_config_var(key) or ""))
+    tools = run / "c-build-tools"
+    tools.mkdir()
+    for name in sorted(commands):
+        resolved = shutil.which(name, path=environment.get("PATH", ""))
+        if resolved is not None:
+            alias = Path(name).name
+            if alias in {"cargo", "rustc"}:
+                raise ValueError("C build tools must not select Cargo or rustc")
+            destination = tools / alias
+            if not destination.exists():
+                destination.symlink_to(Path(resolved).absolute())
+    assert all(shutil.which(name, path=str(tools)) is None for name in ["cargo", "rustc"])
+    return tools
+
+
 def isolated_frontend(run, wheelhouse, sdk, environment):
     inventory = snapshot_wheelhouse(wheelhouse, run / "wheelhouse", sdk)
     # Pip configuration and caches must not provide alternate dependency sources.
@@ -124,15 +145,19 @@ def isolated_frontend(run, wheelhouse, sdk, environment):
     env.update(PIP_CONFIG_FILE=os.devnull, PIP_NO_INDEX="1", PIP_NO_CACHE_DIR="1",
                PIP_FIND_LINKS=(run / "wheelhouse").as_uri(), PIP_ONLY_BINARY=":all:",
                PIP_DISABLE_PIP_VERSION_CHECK="1")
+    env["PATH"] = str(c_build_path(run, environment))
     builder = run / "builder"
     venv.EnvBuilder(with_pip=True, symlinks=False).create(builder)
     python = builder / "bin/python"
     execute([python, "-I", "-m", "pip", "install", "build"], ROOT,
             run / "frontend-install.log", environment=env)
-    probe = '''import importlib.util, importlib.metadata, json
+    probe = '''import importlib.util, importlib.metadata, json, shutil
 absent = {name: importlib.util.find_spec(name) is None for name in ["sorust", "Cython", "setuptools"]}
 assert all(absent.values()), absent
-print(json.dumps({"absentBeforeBuild": absent, "frontend": importlib.metadata.version("build")}))
+rust = {name: shutil.which(name) is not None for name in ["cargo", "rustc"]}
+assert not any(rust.values()), rust
+print(json.dumps({"absentBeforeBuild": absent, "rustToolsAvailableBeforeBuild": rust,
+                  "frontend": importlib.metadata.version("build")}))
 '''
     execute([python, "-I", "-c", probe], ROOT, run / "frontend-probe.json", environment=env)
     observed = json.loads((run / "frontend-probe.json").read_text())
@@ -426,6 +451,7 @@ manifest-sha256 = "{manifest_pin}"
               "consumerBuildRustInvocations": [] if args.prebuilt_rust else None,
               "buildIsolation": "pep517-offline" if args.build_wheelhouse is not None else "prepared-environment",
               "isolatedBuildInputs": build_inputs,
+              "buildRustToolPolicy": "unavailable-on-path" if args.build_wheelhouse is not None else "failure-stubs" if args.prebuilt_rust else "available",
               "declaredResourceDriftRejected": resource_drift_rejected,
               "bareExportMissingConsumerResource": not args.manifest_resources,
               "explicitSidecarSha256": None if args.manifest_resources else digest(inputs["standard/semantic-profile.json"]),

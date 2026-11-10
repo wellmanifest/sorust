@@ -8,7 +8,7 @@
 
 ## Goal and scope
 
-SESSION_EXECUTION_AUTHORIZATION: user continues "kontynuuj" under existing Sorust reuse/test/protected merge task. PLF-018; prior ticket015 complete, clean main78c0f69, released lease/no open PR. Baseline receipt:sorust.isolation-baseline.78c0f69 observes only prepared --no-isolation pilot. Extend bounded developer pilot with local wheelhouse snapshot and clean frontend, actual offline isolated PEP517 dependencies, existing Rust fail stubs, provenance and guard tests. No runtime/backend/kernel/ABI/dependency/platform changes, downloads, consumer source migration, speed guarantee, registry release/deploy.
+SESSION_EXECUTION_AUTHORIZATION: user continues "kontynuuj" under existing Sorust reuse/test/protected merge task. PLF-018; prior ticket015 complete, clean main78c0f69, released lease/no open PR. Baseline receipt:sorust.isolation-baseline.78c0f69 observes only prepared --no-isolation pilot. Extend bounded developer pilot with local wheelhouse snapshot and clean frontend, actual offline isolated PEP517 dependencies, Rust unavailable on isolated PATH after observed optional pip version probes; existing fail stubs for prepared mode, provenance and guard tests. No runtime/backend/kernel/ABI/dependency/platform changes, downloads, consumer source migration, speed guarantee, registry release/deploy.
 
 ## Acceptance criteria
 

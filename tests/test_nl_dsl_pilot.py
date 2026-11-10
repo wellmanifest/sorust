@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import zipfile
@@ -240,3 +241,21 @@ def test_isolated_pilot_requires_prebuilt_mode_before_reading_inputs(monkeypatch
     monkeypatch.setattr(pilot, "snapshot", lambda *a: pytest.fail("consumer input must not be read"))
     with pytest.raises(ValueError, match="requires --prebuilt-rust"):
         pilot.pilot(Namespace(build_wheelhouse=tmp_path, prebuilt_rust=False))
+
+
+def test_c_build_path_excludes_rust_and_preserves_c_compiler(tmp_path):
+    tools = pilot.c_build_path(tmp_path, dict(os.environ))
+    assert shutil.which("rustc", path=str(tools)) is None
+    assert shutil.which("cargo", path=str(tools)) is None
+    compiler = shutil.which("cc", path=str(tools))
+    assert compiler and Path(compiler).samefile(shutil.which("cc"))
+
+
+def test_c_build_path_rejects_rust_selected_as_c_compiler(tmp_path):
+    selected = tmp_path / "outside"
+    selected.mkdir()
+    rust = selected / "rustc"
+    rust.write_text("#!/bin/sh\nexit 97\n")
+    rust.chmod(0o755)
+    with pytest.raises(ValueError, match="must not select"):
+        pilot.c_build_path(tmp_path, dict(os.environ, CC=str(rust)))
