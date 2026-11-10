@@ -8,11 +8,12 @@ import importlib.machinery
 import importlib.util
 import json
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable
 from functools import lru_cache
 from itertools import islice
 from operator import index
 from pathlib import Path
+from typing import SupportsIndex
 
 __version__ = "0.1.0"
 __all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "iter_ascii_token_counts", "verify_artifacts", "export_artifacts", "NativeArtifactError"]
@@ -178,8 +179,8 @@ def count_ascii_tokens_many(inputs: Iterable[bytes], *, backend: str = "rust") -
     return list(output)
 
 
-def iter_ascii_token_counts(inputs: Iterable[bytes], *, batch_size: int = 256,
-                           backend: str = "rust") -> Iterator[int]:
+def iter_ascii_token_counts(inputs: Iterable[bytes], *, batch_size: SupportsIndex = 256,
+                           backend: str = "rust") -> Generator[int, None, None]:
     """Lazily yield counts, consuming at most one batch ahead of the caller.
 
     Validate parameters eagerly. Native capability is checked on first pull,

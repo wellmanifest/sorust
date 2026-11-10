@@ -67,7 +67,7 @@
       ],
       "dataChanges": [],
       "interfaceChanges": [
-        "iter_ascii_token_counts(inputs, *, batch_size=256, backend=rust|compiled-python) -> Iterator[int]"
+        "iter_ascii_token_counts(inputs, *, batch_size=256, backend=rust|compiled-python) -> Generator[int, None, None]; integer-index batch sizes supported"
       ],
       "responsibilityChanges": false,
       "ui": {
