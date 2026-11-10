@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 11,
+  "version": 12,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "50293859eebd1c706c078a1d6fde0e453c29cc2c",
+  "source_revision": "2d5f63baeb62394a4460894e649b6a80b548d9b7",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -50,7 +50,12 @@
     "https://github.com/wellmanifest/sorust/blob/50293859eebd1c706c078a1d6fde0e453c29cc2c/tests/benchmark_count_many.py",
     "receipt:sorust.stream-baseline.ef788e9",
     "receipt:sorust.stream-memory.5029385",
-    "https://github.com/wellmanifest/sorust/pull/7"
+    "https://github.com/wellmanifest/sorust/pull/7",
+    "https://github.com/wellmanifest/sorust/pull/8",
+    "https://github.com/wellmanifest/sorust/blob/2d5f63baeb62394a4460894e649b6a80b548d9b7/src/sorust/backend.py",
+    "https://github.com/wellmanifest/sorust/blob/2d5f63baeb62394a4460894e649b6a80b548d9b7/tests/test_build.py",
+    "receipt:sorust.rebuild-baseline.b102941",
+    "receipt:sorust.rebuild-validation.2d5f63b"
   ]
 }
 ---
@@ -115,6 +120,12 @@ Porównanie obu API z tego samego wheel-a kandydata w minimalnym venv, Linux x86
 
 Iterator osiągnął 6,29% szczytu eager-many (spadek 93,71%), spełniając lokalny cel ≤10%. Receipt `receipt:sorust.stream-memory.5029385` wiąże źródło, dokładny wheel, digest skryptu, manifest i próbki. `tracemalloc` mierzy alokacje Python, nie RSS całego procesu. To generator kontrolowany, bez dowodu na rzeczywiste procesy `nl-*`, gwarancji stałej liczby bajtów ani celu czasowego. Pomiary czasu podczas śledzenia pamięci nie służą ocenie przyspieszenia. Wersja 11 uzupełnia historyczne ustalenia wersji 10; nie zmienia jądra Rust, ABI C ani obu istniejących API.
 
+Korekta ponownego budowania w źródle `2d5f63baeb62394a4460894e649b6a80b548d9b7`: na bazie `b10294160915d5507e8a50ace6a78f2a9db7feeb` dwie budowy wheel-a w tym samym drzewie konsumenta ujawniły stary moduł natywny. Po zmianie `python-modules` z `legacy` na `fresh` i źródła legacy z wartości 10 na 11 drugi wheel zawierał zarówno aktualne `legacy.py`, jak i stare, niewymienione w nowym manifeście `legacy.so`. Rzeczywisty import po instalacji zwracał 10. Receipt: `receipt:sorust.rebuild-baseline.b102941`. To odtworzenie lokalnego błędu pakowania, bez migracji rzeczywistego konsumenta.
+
+Backend tworzy teraz własny tymczasowy katalog dla każdego hooka `build_wheel`. Polecenia setuptools `build` i `bdist_wheel` kierują do niego odpowiednio `build_lib` i katalog instalacji wheel-a. Dzięki temu stare wyniki kompilacji oraz pliki pozostawione po przerwanym pakowaniu nie stają się zawartością nowej paczki. Katalog jest usuwany po wyjściu z hooka, również przy wyjątku. Cache kompilatorów Cython/Cargo i wcześniejsze katalogi build pozostają do ponownego użycia; nie wykonuje się ich czyszczenia. Hooki metadanych i sdist, runtime, Rust i ABI nie zmieniły się. Wersja 12 uzupełnia ustalenia wersji 11.
+
+Walidacja korekty: pełne 92 testy pytest PASS (153,64 s) i 5 testów Cargo PASS. Dwa przypadki regresji budują dwukrotnie w tym samym drzewie konsumenta, zmieniają wybór modułu do kompilacji, a poprzednio kompilowany moduł odpowiednio zmieniają lub usuwają. Każdy przypadek dodatkowo zasiewa zawartość poprzedniego wheel-a w konwencjonalnym katalogu pakowania, odwzorowując przerwany starszy build. Sprawdzono brak starych rozszerzeń/źródeł, sumy bieżącego manifestu i rzeczywiste zachowanie po instalacji drugiego wheel-a. Zachowano testy pojedynczych/zagnieżdżonych modułów, sdist, eksportu i API scalar/many/stream. Receipt: `receipt:sorust.rebuild-validation.2d5f63b`.
+
 <!-- docs:section content -->
 ## Content
 
@@ -132,6 +143,7 @@ Iterator osiągnął 6,29% szczytu eager-many (spadek 93,71%), spełniając loka
 | SORUST-010 | Eksport plików z manifestu MUSI zweryfikować źródła przed utworzeniem nowego celu, zachować względne ścieżki i sumy oraz zapisać manifest po plikach. Nie wolno ponownie używać istniejącego katalogu, pliku ani dowiązania jako celu eksportu. |
 | SORUST-011 | Wsad MUSI zachować kolejność i semantykę każdego bufora oraz odrzucić niespójne długości, przepełnienie sumy, zbyt duże rozmiary tablic i niedozwolone NULL przed zapisem wyników. Ważność i rozłączność pozostałych wskaźników należą do obowiązków klienta C. |
 | SORUST-012 | Iterator MUSI zachować kolejność, pobierać co najwyżej `batch_size` elementów do bieżącej paczki i sprawdzić obsługę natywną przed pobraniem źródła. Nie wywołuje `close()` na źródle należącym do klienta. Błąd nieukończonej paczki nie udostępnia jej częściowych wyników. |
+| SORUST-013 | Backend MUSI składać każdy wheel z aktualnych źródeł i konfiguracji w świeżym stagingu, oddzielonym od wcześniejszych katalogów biblioteki i pakowania. Wycofany z kompilacji moduł wraca jako bieżący Python, jeżeli jego źródło istnieje; usunięty moduł nie może przetrwać przez cache poprzedniej budowy. |
 
 Pierwsze jądro `sorust-kernel` liczy tokeny bajtowe oddzielone dokładnie przez spację i bajty 9–13. Pozostałe bajty, w tym NUL i UTF-8, są nieprzezroczyste. To nie jest tokenizer modelu LLM.
 
@@ -250,6 +262,12 @@ recursive-include include *.h
 
 Budować przez `python -m build`, z dostępnym kompilatorem C, nagłówkami CPython, Cargo i rustc. Zależności Cargo muszą być obecne lokalnie. Wybrane moduły `.py` muszą znajdować się pod `src/` i należeć do `artifact-package`; ABI v1 jest jedyną przyjmowaną wersją konfiguracji.
 
+### Ponowne budowanie konsumenta
+
+Można ponownie budować wheel w tym samym drzewie źródeł po zmianie `python-modules` lub usunięciu dawnego modułu. Każde wywołanie `build_wheel` używa osobnego tymczasowego stagingu pod `build/`, obejmującego bibliotekę oraz etap instalacji przed utworzeniem archiwum. Do nowej paczki trafiają bieżące moduły i nowy manifest; stare rozszerzenie nie może przesłonić aktualnego źródła Python. Nie trzeba usuwać wcześniejszego `build/lib.*` ani `build/bdist.*` dla tego przepływu. Usuwa się tylko staging utworzony przez bieżące wywołanie; cache kompilatorów pozostaje współdzielony między kolejnymi budowami.
+
+To rozdzielenie zawartości wheel-i, bez deklaracji izolacji procesu budowania, bezpiecznej równoległej budowy jednego drzewa ani obsługi dowolnych ręcznie dodanych binarek w źródłach. Wywołania w tym samym drzewie należy serializować. Standardowa izolacja zależności PEP 517 pozostaje odrębną właściwością frontendu.
+
 Sorust nie został opublikowany w PyPI. Do lokalnej adopcji najpierw zbudować wheel Sorust i dostarczyć go builderowi przez lokalny wheelhouse (`pip --find-links /sciezka/do/dist`), lub zainstalować wheel i zależności build w izolowanym venv, a następnie użyć `python -m build --no-isolation`.
 
 Konsumenci gotowego wheel-a nie potrzebują Rust ani Cython. Klient C korzysta z `_native/sorust.h` i `_native/libsorust_kernel.so`; klient Rust może użyć tego samego ABI C albo `.rlib` z dokładnie zgodnego toolchaina. `.rlib` z profilu release wymaga `panic=abort` u klienta.
@@ -272,4 +290,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Każda następna zmiana, w tym iterator w ticket-008, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Każda następna zmiana, w tym staging wheel-a w ticket-009, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
