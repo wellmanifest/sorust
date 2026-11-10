@@ -376,6 +376,21 @@ def test_rust_bytes_passthrough_avoids_copy(monkeypatch):
 def test_installed_bytes_subclass_parity(built, case):
     _, _, python, _ = built
     run([python, "-I", "-c", r'''
+def test_consumer_wheel_rebuild_rejects_skip_build(built, tmp_path):
+    _, wheel, _, _ = built
+    run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
+    project, _, _ = external_project(tmp_path)
+    output = tmp_path / "skipped"
+    result = subprocess.run([sys.executable, "-I", "-c", '''
+import sys
+from sorust.backend import build_wheel
+build_wheel(sys.argv[1], {"--build-option": ["--skip-build"]})
+''', str(output)], cwd=project, text=True, capture_output=True, timeout=180)
+    assert result.returncode != 0
+    assert "--skip-build is unsupported" in result.stderr
+    assert not list(output.glob("*.whl"))
+
+
 import importlib.util
 import sys
 import sorust

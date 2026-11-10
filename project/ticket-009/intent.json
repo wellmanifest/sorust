@@ -37,11 +37,11 @@
       "maxAffectedComponents": 3,
       "maxImplementationFiles": 3,
       "maxRuntimeDependencies": 0,
-      "maxPublicInterfaceChanges": 0
+      "maxPublicInterfaceChanges": 1
     },
     "architecture": {
       "status": "accepted",
-      "decision": "Create a unique temporary wheel staging directory beneath build; select its lib via setuptools build and its wheel installation root via bdist_wheel finalization. Route current Python/native/package outputs through this fresh tree, including after interrupted older packing; retain Cython/Cargo caches and pre-existing outputs untouched. Scope staging lifetime around the wheel hook. Metadata/sdist keep existing paths.",
+      "decision": "Create a unique temporary wheel staging directory beneath build; select its lib via setuptools build and its wheel installation root via bdist_wheel finalization. Route current Python/native/package outputs through this fresh tree, including after interrupted older packing; retain Cython/Cargo caches and pre-existing outputs untouched. Scope staging lifetime around the wheel hook. Metadata/sdist keep existing paths. Final option probe produced an empty successful wheel with --skip-build; reject this wheel option explicitly before packaging and test actual hook failure/no wheel.",
       "components": [
         {
           "name": "wheel-backend",
@@ -63,7 +63,9 @@
         }
       ],
       "dataChanges": [],
-      "interfaceChanges": [],
+      "interfaceChanges": [
+        "PEP517 wheel hook explicitly rejects --skip-build: fresh staging cannot supply prior artifacts. Runtime/C ABI unchanged."
+      ],
       "responsibilityChanges": false,
       "ui": {
         "impact": "none",
@@ -79,7 +81,7 @@
         "commands": [
           "python -m pytest -q tests/test_build.py -k rebuild"
         ],
-        "evidence": "Actual two wheel-only builds in same consumer build tree change compilation selection; former source changed/removed. Seed prior wheel package payload into conventional bdist staging to model interrupted older packaging. Inspect exact new wheel payload/manifest hashes, install it and assert current Python/compiled behavior."
+        "evidence": "Actual two wheel-only builds in same consumer build tree change compilation selection; former source changed/removed. Seed prior wheel package payload into conventional bdist staging to model interrupted older packaging. Inspect exact new wheel payload/manifest hashes, install it and assert current Python/compiled behavior. Actual PEP517 wheel hook rejects --skip-build with clear error and no wheel."
       },
       {
         "criterion": "AC-02",
@@ -97,7 +99,7 @@
           "git diff --check",
           "independent exact-head protected publication"
         ],
-        "evidence": "Canonical standardv12 metadata/index/tracking, local and required remote gates, frozen independent approval/merge, owner-CAS lease release, preserved generated data and exact worktree terminal audit."
+        "evidence": "Canonical standardv13 metadata/index/tracking, local and required remote gates, frozen independent approval/merge, owner-CAS lease release, preserved generated data and exact worktree terminal audit."
       }
     ]
   }

@@ -125,6 +125,11 @@ def _setup(wheel_staging: Path | None = None):
                 super().finalize_options()
                 self.bdist_dir = str(wheel_staging / "wheel")
 
+            def run(self):
+                if self.skip_build:
+                    raise ValueError("Sorust wheel builds require a fresh build; --skip-build is unsupported")
+                super().run()
+
         commands["build"] = WheelBuild
         commands["bdist_wheel"] = WheelDistribution
     setup(ext_modules=cythonize(extensions, build_dir="build/cython", language_level=3),
