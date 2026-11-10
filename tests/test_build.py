@@ -741,11 +741,15 @@ def external_project(tmp_path, layout="single"):
     (package / "_compat.py").write_text("def double(value):\n    return value * 2\n")
     (package / "untouched.py").write_text("def identity(value):\n    return value\n")
     modules = ["nl_atomic_example._compat"]
-    if layout == "nested":
+    if layout in {"nested", "initializers"}:
         (package / "nested").mkdir()
         (package / "nested/__init__.py").write_text("")
         (package / "nested/_fast.py").write_text("def triple(value):\n    return value * 3\n")
         modules.append("nl_atomic_example.nested._fast")
+    if layout == "initializers":
+        (package / "__init__.py").write_text("from ._compat import double\nfrom .nested import triple\n")
+        (package / "nested/__init__.py").write_text("from ._fast import triple\n")
+        modules += ["nl_atomic_example.__init__", "nl_atomic_example.nested.__init__"]
     text = (ROOT / "pyproject.toml").read_text()
     text = text.replace('build-backend = "sorust.backend"\nbackend-path = ["src"]', 'build-backend = "sorust.backend"')
     text = text.replace('"setuptools>=77", "wheel>=0.45", "Cython>=3,<4"', '"sorust[build]==0.1.0", "setuptools>=77", "wheel>=0.45", "Cython>=3,<4"', 1)
@@ -760,7 +764,7 @@ def external_project(tmp_path, layout="single"):
     return project, package, modules
 
 
-@pytest.mark.parametrize("layout", ["single", "nested"])
+@pytest.mark.parametrize("layout", ["single", "nested", "initializers"])
 def test_external_consumer_build_backend(built, tmp_path, layout):
     _, wheel, python, _ = built
     run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
@@ -782,6 +786,8 @@ def test_external_consumer_build_backend(built, tmp_path, layout):
         for item in manifest["artifacts"] + manifest["headers"]:
             assert hashlib.sha256(archive.read("nl_atomic_example/" + item["path"])).hexdigest() == item["sha256"]
     run([python, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", next(output.glob("*.whl"))])
+    exported = tmp_path / ("exported/nl_atomic_example" if layout == "initializers" else "foreign-export")
+    exported.parent.mkdir(parents=True, exist_ok=True)
     run([python, "-I", "-c", '''
 from nl_atomic_example import _compat, untouched
 import ctypes, importlib.machinery, json, sys
@@ -789,10 +795,18 @@ from pathlib import Path
 assert any(_compat.__file__.endswith(x) for x in importlib.machinery.EXTENSION_SUFFIXES)
 assert _compat.double(21) == 42
 assert untouched.identity("value") == "value"
-if sys.argv[1] == "nested":
+if sys.argv[1] in {"nested", "initializers"}:
     from nl_atomic_example.nested import _fast
     assert any(_fast.__file__.endswith(x) for x in importlib.machinery.EXTENSION_SUFFIXES)
     assert _fast.triple(14) == 42
+if sys.argv[1] == "initializers":
+    import nl_atomic_example as root
+    from nl_atomic_example import nested
+    for module in [root, nested]:
+        assert isinstance(module.__loader__, importlib.machinery.ExtensionFileLoader)
+        assert list(module.__path__) == [str(Path(module.__file__).parent)]
+        assert module.__package__ == module.__name__
+    assert root.double(21) == root.triple(14) == nested.triple(14) == 42
 package = Path(_compat.__file__).parent
 manifest = json.loads((package / "sorust-artifacts.json").read_text())
 item = next(item for item in manifest["artifacts"] if item["kind"] == "rust-cdylib")
@@ -809,7 +823,45 @@ from sorust import export_artifacts, verify_artifacts
 exported = export_artifacts(sys.argv[2], package_dir=package)
 assert verify_artifacts(exported) == manifest
 assert not list(exported.rglob("*.py"))
-''', layout, tmp_path / "foreign-export"])
+''', layout, exported])
+    if layout == "initializers":
+        clean = tmp_path / "binary-runtime"
+        venv.EnvBuilder(with_pip=False, symlinks=False).create(clean)
+        run([clean / "bin/python", "-I", "-c", '''
+import ctypes, hashlib, importlib.machinery, importlib.util, json, sys
+from pathlib import Path
+assert importlib.util.find_spec("sorust") is None
+assert importlib.util.find_spec("Cython") is None
+assert importlib.util.find_spec("nl_atomic_example") is None
+sys.path.insert(0, sys.argv[1])
+import nl_atomic_example as root
+from nl_atomic_example import _compat, nested
+from nl_atomic_example.nested import _fast
+package = Path(sys.argv[1]) / "nl_atomic_example"
+assert not list(package.rglob("*.py"))
+for module in [root, nested, _compat, _fast]:
+    assert isinstance(module.__loader__, importlib.machinery.ExtensionFileLoader)
+    assert Path(module.__file__).resolve().is_relative_to(package.resolve())
+for module in [root, nested]:
+    assert list(module.__path__) == [str(Path(module.__file__).parent)]
+    assert module.__package__ == module.__name__
+assert root.double(21) == root.triple(14) == nested.triple(14) == 42
+assert _compat.double(21) == _fast.triple(14) == 42
+assert importlib.util.find_spec("nl_atomic_example.untouched") is None
+manifest = json.loads((package / "sorust-artifacts.json").read_text())
+for item in manifest["artifacts"] + manifest["headers"]:
+    assert hashlib.sha256((package / item["path"]).read_bytes()).hexdigest() == item["sha256"]
+item = next(item for item in manifest["artifacts"] if item["kind"] == "rust-cdylib")
+library = ctypes.CDLL(str(package / item["path"]))
+library.sorust_abi_version.argtypes = []
+library.sorust_abi_version.restype = ctypes.c_uint32
+assert library.sorust_abi_version() == 1
+count = library.sorust_count_ascii_tokens_v1
+count.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)]
+count.restype = ctypes.c_int32
+output = ctypes.c_uint64()
+assert count(b"one two", 7, ctypes.byref(output)) == 0 and output.value == 2
+''', exported.parent])
 
 
 @pytest.mark.parametrize("former_source", ["changed", "removed"])

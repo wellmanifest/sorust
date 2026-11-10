@@ -1,0 +1,97 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-010",
+  "summary": "Verify compiled package initializers and standalone binary imports",
+  "workstream": "integration",
+  "classification": {
+    "kind": "SERVICE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-010/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9",
+    "targetBranch": "main",
+    "outcome": "Durably verify root+nested compiled package initializer semantics and reuse of a native-only exported package with Rust C ABI from a clean venv; publish exact evidence and independently merge.",
+    "nonGoals": [
+      "Modify backend/runtime/Rust/C ABI, dependencies, platform support, benchmark claims or consumer repositories.",
+      "Publish registry release/deploy, change protected policy or claim full protected Docs adoption."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 25,
+    "budgets": {
+      "maxAffectedComponents": 2,
+      "maxImplementationFiles": 2,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 0
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Extend existing foreign consumer helper/layout coverage with root+nested __init__.py selected alongside their two compiled dependency modules. Validate sdist->wheel, manifest hashes, .py exclusion, package paths/loaders/relative imports and unselected Python preservation. Export into correctly named package directory, import/call four native modules and Rust C ABI in a new stdlib-only venv with no Sorust/Cython/source .py. Reuse existing backend unchanged.",
+      "components": [
+        {
+          "name": "consumer-interop-tests",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert via protected review; preserve baseline receipt, built/exported fixture and generated worktree outputs before owned cleanup."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k \"external_consumer and initializers\""
+        ],
+        "evidence": "Actual PEP517 source/sdist/wheel with four compiled modules including root+nested initializers. Verify removed selected .py, preserved unselected Python, hashes, installed package paths/loaders and relative imports. Clean venv has neither Sorust/Cython nor source package; native-only export imports/calls all modules and Rust C ABI."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Full94 pytest and5Cargo expected, final build/export/installed both-backend smoke and matching existing runtime artifact manifest. No new backend/runtime/platform claims."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Canonical standardv14 metadata/index/tracking and exact source/receipts, local and required remote gates, frozen independent approval/merge, owner CAS release, preserved generated data and terminal cleanup/audit."
+      }
+    ]
+  }
+}

@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 13,
+  "version": 14,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "eefdb1cae1f8aa30343f416f2e78653db879e8f8",
+  "source_revision": "7a87f03b6e15796081578af655e6e5e59fbf5f9f",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -59,7 +59,12 @@
     "https://github.com/wellmanifest/sorust/blob/eefdb1cae1f8aa30343f416f2e78653db879e8f8/src/sorust/backend.py",
     "https://github.com/wellmanifest/sorust/blob/eefdb1cae1f8aa30343f416f2e78653db879e8f8/tests/test_build.py",
     "receipt:sorust.rebuild-skip-build.124c1b4",
-    "receipt:sorust.rebuild-validation.eefdb1c"
+    "receipt:sorust.rebuild-validation.eefdb1c",
+    "https://github.com/wellmanifest/sorust/blob/7a87f03b6e15796081578af655e6e5e59fbf5f9f/tests/test_build.py",
+    "receipt:sorust.package-init-baseline.bf83dc5",
+    "receipt:sorust.package-init-targeted.7a87f03",
+    "https://github.com/wellmanifest/sorust/pull/9",
+    "receipt:sorust.package-init-validation.7a87f03"
   ]
 }
 ---
@@ -133,6 +138,12 @@ Walidacja korekty: pełne 92 testy pytest PASS (153,64 s) i 5 testów Cargo PASS
 Uzupełnienie w źródle `eefdb1cae1f8aa30343f416f2e78653db879e8f8`: kontrolowany hook wheel-a z opcją setuptools `--skip-build` na HEAD `124c1b4dc7e954eebf3b860ef57dd263f89db3d3` zakończył się kodem 0, tworząc archiwum zawierające wyłącznie cztery pliki dist-info, bez modułów i manifestu. Receipt: `receipt:sorust.rebuild-skip-build.124c1b4`. Świeży staging wymaga wykonania budowy; backend odrzuca teraz tę opcję jawnym `ValueError` przed pakowaniem. Wersja 13 zachowuje ustalenia wersji 12 i dodaje tę granicę kontraktu hooka; publiczne API runtime i ABI pozostają zgodne.
 
 Końcowa walidacja źródła `eefdb1cae1f8aa30343f416f2e78653db879e8f8`: 93 testy pytest PASS (86,51 s), w tym oba przypadki przebudowy ze starą zawartością i rzeczywisty hook odrzucający `--skip-build` bez utworzenia wheel-a. 5 testów Cargo PASS dotyczy niezmienionego kodu Rust. Receipt: `receipt:sorust.rebuild-validation.eefdb1c`. Wcześniejszy wynik 92 testów powyżej odnosi się do historycznej rewizji korekty stagingu.
+
+Walidacja inicjalizatorów pakietów w źródle `7a87f03b6e15796081578af655e6e5e59fbf5f9f`: odczytana baza `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9` już poprawnie kompiluje wybrany `__init__.py`, zachowując import względny, `__package__` i `__path__` (receipt `receipt:sorust.package-init-baseline.bf83dc5`). Nie odtworzono usterki runtime. Dodany trwały wariant konsumenta buduje sdist i wheel z czterema rozszerzeniami, w tym inicjalizatorami pakietu głównego i zagnieżdżonego, oraz jednym Rust cdylib. Test celowany PASS (16,05 s, 93 pozostałe pominięte) potwierdził brak wybranych źródeł `.py`, zachowanie niewybranego modułu Python w wheel-u, wszystkie sumy manifestu i nagłówka oraz semantykę pakietu po instalacji.
+
+Ten sam eksport z czterema rozszerzeniami działa w nowym venv bez Sorust i Cython. Wyeksportowany pakiet nie zawiera `.py`; normalne importy CPython uruchamiają inicjalizatory i ich skompilowane zależności, zachowując ścieżki pakietów i importy względne. Test wykonuje również rzeczywiste wywołanie Rust C ABI z eksportowanego cdylib. Receipt `receipt:sorust.package-init-targeted.7a87f03` wiąże manifest i wynik. Backend, runtime, ABI i zależności pozostają bez zmian; wersja 14 uzupełnia instrukcję i dowody wersji 13, bez nowej deklaracji platformowej ani pomiaru przyspieszenia.
+
+Pełna walidacja tej rewizji: 94 testy pytest PASS (83,87 s) oraz 5 testów Cargo PASS; receipt `receipt:sorust.package-init-validation.7a87f03`. Zakres obejmuje poprzednie regresje budowania, importów, eksportu i API scalar/many/stream oraz nowy wariant czterech rozszerzeń i samodzielnego Rust cdylib. W tej zmianie modyfikowano wyłącznie testy i dokumentację.
 
 <!-- docs:section content -->
 ## Content
@@ -266,7 +277,24 @@ recursive-include crates *.toml *.lock *.rs
 recursive-include include *.h
 ```
 
-`python-modules` przyjmuje również kilka modułów, w tym zagnieżdżone, np. `["nl_component._legacy", "nl_component.nested._fast"]`. Wheel zawiera ich rozszerzenia i jedno jądro Rust. Usuwa się tylko źródła jawnie wybrane do kompilacji; niewybrane moduły pozostają zwykłym Pythonem. Pakiet nadal dostarcza własne pliki `__init__.py` lub deklaruje właściwą strukturę namespace.
+`python-modules` przyjmuje również kilka modułów, w tym zagnieżdżone, np. `["nl_component._legacy", "nl_component.nested._fast"]`. Wheel zawiera ich rozszerzenia i jedno jądro Rust. Usuwa się tylko źródła jawnie wybrane do kompilacji; niewybrane moduły pozostają zwykłym Pythonem. Pakiet zachowuje odpowiednie inicjalizatory lub właściwą strukturę namespace; jawnie wybrane `__init__.py` można również kompilować jak poniżej.
+
+### Skompilowane inicjalizatory pakietów
+
+Inicjalizator wybiera się przez pełną nazwę zakończoną `.__init__`. Przykładowa lista w istniejącej tabeli `[tool.sorust]`:
+
+```toml
+python-modules = [
+  "nl_component.__init__",
+  "nl_component._legacy",
+  "nl_component.nested.__init__",
+  "nl_component.nested._fast",
+]
+```
+
+W sprawdzonym wariancie `import nl_component` i `import nl_component.nested` korzystają z `__init__.<SOABI>.so`, zachowując `__package__`, `__path__` oraz importy względne do dwóch pozostałych rozszerzeń. Wybrane inicjalizatory `.py` są usuwane z wheel-a tak samo jak inne wybrane moduły. Niewybrane moduły nadal mogą być zwykłym Pythonem.
+
+Aby importować pakiet bezpośrednio z eksportu, katalog docelowy powinien mieć jego nazwę, np. `./binary-packages/nl_component`, a jego rodzic powinien być dostępny na `sys.path`. Eksport musi zawierać skompilowane zależności importowane przez inicjalizatory. Nie kopiuje automatycznie niewybranych źródeł ani zależności zewnętrznych. Testowany przykład wybiera wszystkie cztery wymagane moduły, dzięki czemu sam pakiet w eksporcie zawiera wyłącznie binarki, nagłówek i manifest. Nadal wymaga zgodnego interpretera CPython i platformy.
 
 Budować przez `python -m build`, z dostępnym kompilatorem C, nagłówkami CPython, Cargo i rustc. Zależności Cargo muszą być obecne lokalnie. Wybrane moduły `.py` muszą znajdować się pod `src/` i należeć do `artifact-package`; ABI v1 jest jedyną przyjmowaną wersją konfiguracji.
 
@@ -298,4 +326,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Każda następna zmiana, w tym staging wheel-a w ticket-009, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Każda następna zmiana, w tym walidacja inicjalizatorów w ticket-010, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
