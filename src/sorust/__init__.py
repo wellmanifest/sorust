@@ -18,7 +18,8 @@ from typing import SupportsIndex
 
 __version__ = "0.1.0"
 __all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "iter_ascii_token_counts",
-           "prepare_ascii_token_counter", "verify_artifacts", "export_artifacts", "NativeArtifactError"]
+           "prepare_ascii_token_counter", "verify_artifacts", "export_artifacts",
+           "export_rust_component", "NativeArtifactError"]
 
 
 class NativeArtifactError(RuntimeError):
@@ -148,7 +149,11 @@ def export_artifacts(destination: str | Path, *, package_dir: str | Path | None 
         if hashlib.sha256(data).hexdigest() != item["sha256"]:
             raise NativeArtifactError(f"Artifact changed before export: {relative}")
         payload[relative] = data
-    manifest_bytes = (json.dumps(manifest, indent=2) + "\n").encode()
+    return _write_export(destination, (json.dumps(manifest, indent=2) + "\n").encode(), payload)
+
+
+def _write_export(destination: str | Path, manifest_bytes: bytes, payload: dict) -> Path:
+    """Write an already verified snapshot; existing output is never reused."""
     target = Path(destination)
     target.mkdir()
     for relative, data in payload.items():
@@ -159,6 +164,30 @@ def export_artifacts(destination: str | Path, *, package_dir: str | Path | None 
     with (target / "sorust-artifacts.json").open("xb") as output:
         output.write(manifest_bytes)
     return target.resolve()
+
+
+def export_rust_component(destination: str | Path, *, distribution: str, version: str,
+                          package: str, manifest_sha256: str, rust_library: str) -> Path:
+    """Export a pinned installed Rust-only distribution without importing it.
+
+    Reuse the build backend's standard-library-only metadata/payload snapshot.
+    Preserve the exact pinned manifest bytes. No native code or build tool runs.
+    The destination must be new and its parent must exist, as for export_artifacts.
+    Hashes detect drift; the caller must independently trust the installed wheel.
+    """
+    from .backend import _rust_component
+
+    try:
+        if not isinstance(rust_library, str) or not re.fullmatch(r"[a-zA-Z_]\w*", rust_library):
+            raise ValueError("invalid Rust library name")
+        component = _rust_component({"abi-version": 1, "rust-library": rust_library,
+            "rust-component": {"distribution": distribution, "version": version,
+                               "package": package, "manifest-sha256": manifest_sha256}})
+        if component["manifest"]["schema"] != "sorust.rust-component/v1":
+            raise ValueError("installed export requires a Rust-only component manifest")
+    except ValueError as error:
+        raise NativeArtifactError(f"Cannot export installed Rust component: {error}") from error
+    return _write_export(destination, component["manifest_bytes"], component["payload"])
 
 
 @lru_cache(maxsize=1)

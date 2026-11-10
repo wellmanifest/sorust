@@ -1,0 +1,109 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-020",
+  "summary": "Export pinned installed Rust components through API and CLI",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-020/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "src/sorust/__main__.py",
+    "tests/test_installed_component_export.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "d147aeaeea1fd161d0884c4a1e088ca10549f074",
+    "targetBranch": "main",
+    "outcome": "Export pinned installed native Rust components through public API/CLI without donor import or build toolchain; preserve existing export and backend validation, verify actual C ABI, independently merge and clean owned checkout.",
+    "nonGoals": [
+      "No backend/algorithm/ABI/manifest schema/runtime dependency/platform changes, consumer source migration, automatic download, registry release/deploy or performance guarantee."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 85,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 2
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Public export_rust_component and export-component CLI select exact installed native-only distribution/version/package/raw manifest pin and Rust library name. Reuse existing lazy stdlib-only backend._rust_component snapshot with ABI1; never import donor/load library at export. Reject dual payload for this atomic export. Extract shared snapshot writer from current export_artifacts; old export preserves canonical JSON behavior, new installed export preserves raw pinned manifest bytes. Validate library name before lookup, convert invalid installed inputs to NativeArtifactError, preserve no-output-on-invalid and no-overwrite contracts. Test fixture/race/ownership/links and real fresh runtime API/CLI with no build packages or compilers; C client reuses output separately.",
+      "components": [
+        {
+          "name": "installed-component-export",
+          "paths": [
+            "src/sorust/__init__.py",
+            "src/sorust/__main__.py"
+          ]
+        },
+        {
+          "name": "component-export-regressions",
+          "paths": [
+            "tests/test_installed_component_export.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "None; raw existing sorust.rust-component/v1 metadata/payload copied unchanged."
+      ],
+      "interfaceChanges": [
+        "export_rust_component Python API",
+        "python -m sorust export-component command"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; old explicit-path export remains available; preserve all native artifacts/receipts/ignored data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_installed_component_export.py tests/test_rust_components.py tests/test_prebuilt_component.py"
+        ],
+        "evidence": "Pinned identity/manifest/payload, safe metadata ownership/snapshots, no donor import/load, invalid input/no output, raw metadata bytes, existing export/backend regressions."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Full suites, fresh installed SDK/native wheel API and CLI with no build packages/compilers, independent C ABI client, old-reader acceptance, final artifacts and reused NL8; indexed canonicalv24/pinned Docs."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "independent protected exact-head delivery"
+        ],
+        "evidence": "Local/remote gates, independent frozen-head review/merge, postmerge smoke, current owner release and preserved exact cleanup."
+      }
+    ]
+  }
+}
