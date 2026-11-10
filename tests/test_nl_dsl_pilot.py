@@ -2,6 +2,7 @@
 import copy
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import zipfile
@@ -135,3 +136,107 @@ def test_conformance_never_silently_skips_unknown_tests(tmp_path, source):
     path.write_text(source)
     with pytest.raises(ValueError, match="argument-free"):
         pilot.conformance(path)
+
+
+@pytest.fixture
+def wheel_inputs(tmp_path):
+    source = tmp_path / "input wheels"
+    source.mkdir()
+    sdk = tmp_path / "sorust-0.1.0-cp313-cp313-linux_x86_64.whl"
+    sdk.write_bytes(b"bound sdk snapshot")
+    (source / sdk.name).write_bytes(sdk.read_bytes())
+    dependency = source / "dependency-1.0-py3-none-any.whl"
+    dependency.write_bytes(b"dependency snapshot")
+    return source, sdk, dependency
+
+
+def test_wheelhouse_freezes_exact_inputs_and_records_hashes(tmp_path, wheel_inputs):
+    source, sdk, dependency = wheel_inputs
+    target = tmp_path / "snapshot"
+    inventory = pilot.snapshot_wheelhouse(source, target, sdk)
+    assert inventory == [{"file": p.name, "sha256": pilot.digest(p.read_bytes())}
+                         for p in sorted(source.iterdir())]
+    dependency.write_bytes(b"changed after snapshot")
+    assert (target / dependency.name).read_bytes() == b"dependency snapshot"
+    assert (target / sdk.name).read_bytes() == sdk.read_bytes()
+
+
+@pytest.mark.parametrize("case", ["missing", "file", "root-link", "parent-link", "dotdot"])
+def test_wheelhouse_rejects_unsafe_directory_before_output(tmp_path, wheel_inputs, case):
+    source, sdk, _ = wheel_inputs
+    if case == "missing":
+        source = tmp_path / "missing"
+    elif case == "file":
+        source = sdk
+    elif case == "root-link":
+        link = tmp_path / "linked"
+        link.symlink_to(source, target_is_directory=True)
+        source = link
+    elif case == "parent-link":
+        link = tmp_path / "parent"
+        link.symlink_to(tmp_path, target_is_directory=True)
+        source = link / source.name
+    else:
+        source = source / ".." / source.name
+    target = tmp_path / "snapshot"
+    with pytest.raises(ValueError, match="regular directory"):
+        pilot.snapshot_wheelhouse(source, target, sdk)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("case", ["empty", "sdist", "directory", "linked-wheel", "missing-sdk", "stale-sdk"])
+def test_wheelhouse_rejects_incomplete_or_unsafe_inputs(tmp_path, wheel_inputs, case):
+    source, sdk, dependency = wheel_inputs
+    if case == "empty":
+        (source / sdk.name).unlink()
+        dependency.unlink()
+    elif case == "sdist":
+        (source / "other.tar.gz").write_bytes(b"not a binary dependency")
+    elif case == "directory":
+        (source / "nested.whl").mkdir()
+    elif case == "linked-wheel":
+        dependency.unlink()
+        dependency.symlink_to(sdk)
+    elif case == "missing-sdk":
+        (source / sdk.name).unlink()
+    else:
+        (source / sdk.name).write_bytes(b"stale SDK")
+    target = tmp_path / "snapshot"
+    with pytest.raises(ValueError, match="regular wheel|exact current"):
+        pilot.snapshot_wheelhouse(source, target, sdk)
+    assert not target.exists()
+
+
+def test_wheelhouse_preserves_existing_snapshot(tmp_path, wheel_inputs):
+    source, sdk, _ = wheel_inputs
+    target = tmp_path / "snapshot"
+    target.mkdir()
+    marker = target / "receipt"
+    marker.write_bytes(b"earlier result")
+    with pytest.raises(FileExistsError):
+        pilot.snapshot_wheelhouse(source, target, sdk)
+    assert marker.read_bytes() == b"earlier result" and list(target.iterdir()) == [marker]
+
+
+def test_isolated_frontend_refuses_missing_local_build_dependency(tmp_path, wheel_inputs):
+    source, sdk, _ = wheel_inputs
+    run = tmp_path / "run"
+    run.mkdir()
+    environment = dict(os.environ, PIP_INDEX_URL="https://example.invalid/forbidden-index",
+                       PIP_FIND_LINKS="https://example.invalid/forbidden-links")
+    with pytest.raises(RuntimeError, match="frontend-install.log"):
+        pilot.isolated_frontend(run, source, sdk, environment)
+    log = (run / "frontend-install.log").read_text()
+    assert "No matching distribution found for build" in log
+    assert "example.invalid" not in log
+    result = subprocess.run([run / "builder/bin/python", "-I", "-c",
+        'import importlib.util; assert all(importlib.util.find_spec(n) is None for n in ["build", "sorust", "Cython", "setuptools"])'],
+        text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_isolated_pilot_requires_prebuilt_mode_before_reading_inputs(monkeypatch, tmp_path):
+    from argparse import Namespace
+    monkeypatch.setattr(pilot, "snapshot", lambda *a: pytest.fail("consumer input must not be read"))
+    with pytest.raises(ValueError, match="requires --prebuilt-rust"):
+        pilot.pilot(Namespace(build_wheelhouse=tmp_path, prebuilt_rust=False))

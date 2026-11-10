@@ -1,0 +1,107 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-016",
+  "summary": "Verify offline isolated prebuilt Rust adoption",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-016/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "tests/benchmark_nl_dsl_pilot.py",
+    "tests/test_nl_dsl_pilot.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "78c0f69dcda83f60469bbddbbee65838f2339734",
+    "targetBranch": "main",
+    "outcome": "Prove offline isolated PEP517 adoption of installed prebuilt Rust on actual NL code; independent protected merge and preserved checkout cleanup.",
+    "nonGoals": [
+      "Runtime/backend/kernel/ABI/dependency/platform changes; downloads or registry release/deploy.",
+      "Consumer source migration, universal hermeticity/security or performance claim."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 60,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 2
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Add optional --build-wheelhouse to developer NL pilot, requiring --prebuilt-rust. Snapshot only regular flat local wheels and hash inventory; require exact current SDK wheel bytes. Prepare fresh pip-only frontend, install build only from snapshot offline and verify Sorust/Cython/setuptools are absent there. Let real isolated PEP517 install declared build requirements from snapshot with Cargo/rustc failure stubs. Record frontend/isolation/input receipts; preserve existing default prepared-environment behavior. Validate guards, missing local dependency rejection and actual pinned source/wheel/export conformance.",
+      "components": [
+        {
+          "name": "offline-pilot",
+          "paths": [
+            "tests/benchmark_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "regressions",
+          "paths": [
+            "tests/test_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "Add optional informational isolation/wheelhouse/frontend fields to private pilot result; no runtime manifest change."
+      ],
+      "interfaceChanges": [
+        "Optional developer pilot --build-wheelhouse PATH"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert of developer tooling; default pilot and native artifacts remain supported."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_nl_dsl_pilot.py"
+        ],
+        "evidence": "Reject unsafe/stale wheelhouse inputs before installation, preserve snapshots and prior output, real missing local build dependency refuses ambient fallback."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -I tests/benchmark_nl_dsl_pilot.py --prebuilt-rust --manifest-resources --build-wheelhouse WHEELHOUSE --number 10"
+        ],
+        "evidence": "Actual pinned NL fresh frontend isolated sdist->wheel/no Rust invocations,24original conformance across3modes, missing Cython rejection, canonicalv20, final artifact/input identity checks."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "independent protected publication"
+        ],
+        "evidence": "Local/required checks, frozen-head independent approval/merge, postmerge smoke, owner CAS release and preserved exact cleanup."
+      }
+    ]
+  }
+}

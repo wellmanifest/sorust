@@ -99,6 +99,46 @@ def execute(args, cwd, log, *, environment=None, timeout=600):
     return time.perf_counter() - started
 
 
+def snapshot_wheelhouse(source, destination, sdk):
+    """Freeze explicit local wheel inputs before pip sees them."""
+    source = source.absolute()
+    if (".." in source.parts or not source.is_dir()
+            or any(p.is_symlink() for p in [source, *source.parents])):
+        raise ValueError("build-wheelhouse must be a regular directory without symlinks")
+    files = sorted(source.iterdir())
+    if not files or any(p.suffix != ".whl" or not p.is_file() or p.is_symlink() for p in files):
+        raise ValueError("build-wheelhouse must contain only regular wheel files")
+    payload = {path.name: path.read_bytes() for path in files}
+    if payload.get(sdk.name) != sdk.read_bytes():
+        raise ValueError("build-wheelhouse must contain the exact current Sorust wheel")
+    destination.mkdir()  # Preserve previous snapshots; never merge or replace them.
+    for name, data in payload.items():
+        (destination / name).write_bytes(data)
+    return [{"file": name, "sha256": digest(data)} for name, data in payload.items()]
+
+
+def isolated_frontend(run, wheelhouse, sdk, environment):
+    inventory = snapshot_wheelhouse(wheelhouse, run / "wheelhouse", sdk)
+    # Pip configuration and caches must not provide alternate dependency sources.
+    env = {key: value for key, value in environment.items() if not key.startswith("PIP_")}
+    env.update(PIP_CONFIG_FILE=os.devnull, PIP_NO_INDEX="1", PIP_NO_CACHE_DIR="1",
+               PIP_FIND_LINKS=(run / "wheelhouse").as_uri(), PIP_ONLY_BINARY=":all:",
+               PIP_DISABLE_PIP_VERSION_CHECK="1")
+    builder = run / "builder"
+    venv.EnvBuilder(with_pip=True, symlinks=False).create(builder)
+    python = builder / "bin/python"
+    execute([python, "-I", "-m", "pip", "install", "build"], ROOT,
+            run / "frontend-install.log", environment=env)
+    probe = '''import importlib.util, importlib.metadata, json
+absent = {name: importlib.util.find_spec(name) is None for name in ["sorust", "Cython", "setuptools"]}
+assert all(absent.values()), absent
+print(json.dumps({"absentBeforeBuild": absent, "frontend": importlib.metadata.version("build")}))
+'''
+    execute([python, "-I", "-c", probe], ROOT, run / "frontend-probe.json", environment=env)
+    observed = json.loads((run / "frontend-probe.json").read_text())
+    return python, env, {"wheels": inventory, **observed}
+
+
 def samples(function, number):
     function()
     values = [x / number for x in timeit.repeat(function, number=number, repeat=7)]
@@ -206,6 +246,8 @@ def worker(run, mode, report):
 def pilot(args):
     import sorust
 
+    if args.build_wheelhouse is not None and not args.prebuilt_rust:
+        raise ValueError("build-wheelhouse requires --prebuilt-rust")
     inputs = snapshot(args.consumer_root, args.revision)
     manifest = sorust.verify_artifacts()
     check_wheel(args.sorust_wheel, ROOT, manifest)
@@ -281,7 +323,12 @@ manifest-sha256 = "{manifest_pin}"
             path.chmod(0o755)
         build_env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ.get("PATH", ""))
     (project / "MANIFEST.in").write_text("recursive-include crates *.toml *.lock *.rs\nrecursive-include include *.h\nrecursive-include src *.py *.json\n")
-    build_seconds = execute([sys.executable, "-I", "-m", "build", "--no-isolation",
+    build_python, build_options, build_inputs = sys.executable, ["--no-isolation"], None
+    if args.build_wheelhouse is not None:
+        build_python, build_env, build_inputs = isolated_frontend(
+            run, args.build_wheelhouse, args.sorust_wheel, build_env)
+        build_options = []
+    build_seconds = execute([build_python, "-I", "-m", "build", *build_options,
                              "--outdir", run / "wheels", project], ROOT, run / "build.log", environment=build_env)
     assert not rust_marker.exists(), "consumer build invoked Cargo or rustc"
     wheel = next((run / "wheels").glob("*.whl"))
@@ -377,6 +424,8 @@ manifest-sha256 = "{manifest_pin}"
               "rustBuildMode": "installed-component" if args.prebuilt_rust else "cargo-source",
               "consumerBuildRustToolsBlocked": args.prebuilt_rust,
               "consumerBuildRustInvocations": [] if args.prebuilt_rust else None,
+              "buildIsolation": "pep517-offline" if args.build_wheelhouse is not None else "prepared-environment",
+              "isolatedBuildInputs": build_inputs,
               "declaredResourceDriftRejected": resource_drift_rejected,
               "bareExportMissingConsumerResource": not args.manifest_resources,
               "explicitSidecarSha256": None if args.manifest_resources else digest(inputs["standard/semantic-profile.json"]),
@@ -398,6 +447,8 @@ def main(argv=None):
                         help="declare, verify and export the consumer JSON with manifest v2")
     parser.add_argument("--prebuilt-rust", action="store_true",
                         help="reuse the installed Sorust Rust payload and block Cargo/rustc during consumer build")
+    parser.add_argument("--build-wheelhouse", type=Path,
+                        help="with --prebuilt-rust, use a fresh frontend and isolated PEP517 with only these local wheels")
     parser.add_argument("--worker", choices=["source", "wheel", "exported"], help=argparse.SUPPRESS)
     parser.add_argument("--run-root", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--report", type=Path, help=argparse.SUPPRESS)
