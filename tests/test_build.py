@@ -148,6 +148,7 @@ spec = importlib.util.spec_from_file_location("_compat", sys.argv[1])
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 assert module.count_ascii_tokens(b"one two") == 2
+assert module.count_ascii_tokens_many([b"one two", b""]) == [2, 0]
 ''', extension])
     library = destination / next(item["path"] for item in manifest["artifacts"]
                                  if item["kind"] == "rust-cdylib")
@@ -276,8 +277,9 @@ def test_sdist_has_native_sources(built):
             assert any(name.endswith(suffix) for name in names)
 
 
+@pytest.mark.parametrize("api", ["scalar", "many"])
 @pytest.mark.parametrize("case", ["unlisted", "source", "missing", "preloaded"])
-def test_compiled_import_requires_manifest_bound_native_module(built, tmp_path, case):
+def test_compiled_import_requires_manifest_bound_native_module(built, tmp_path, case, api):
     _, _, python, package = built
     clone = tmp_path / "sorust"
     shutil.copytree(package, clone)
@@ -305,7 +307,10 @@ sorust.verify_artifacts()
 if sys.argv[2] == "preloaded":
     from sorust import _compat
 try:
-    sorust.count_ascii_tokens(b"one two", backend="compiled-python")
+    if sys.argv[4] == "scalar":
+        sorust.count_ascii_tokens(b"one two", backend="compiled-python")
+    else:
+        sorust.count_ascii_tokens_many([b"one two"], backend="compiled-python")
 except sorust.NativeArtifactError:
     pass
 else:
@@ -313,7 +318,7 @@ else:
 assert not Path(sys.argv[3]).exists(), "uncompiled Python executed before rejection"
 if sys.argv[2] != "preloaded":
     assert "sorust._compat" not in sys.modules, "unverified module imported before rejection"
-''', tmp_path, case, marker])
+''', tmp_path, case, marker, api])
 
 
 def test_c_consumer_links_installed_binary(built, tmp_path):
@@ -323,6 +328,12 @@ def test_c_consumer_links_installed_binary(built, tmp_path):
     source = tmp_path / "consumer.c"
     source.write_text('''#include "sorust.h"
 int main(void) { uint64_t n=0; const uint8_t text[]="one two\\tthree";
+uint64_t counts[3]; size_t lengths[]={3,0,sizeof(text)-1-3};
+if (sorust_count_ascii_tokens_many_v1(text,sizeof(text)-1,lengths,3,counts)!=0 ||
+    counts[0]!=1 || counts[1]!=0 || counts[2]!=2) return 2;
+lengths[2]++; counts[0]=counts[1]=counts[2]=77;
+if (sorust_count_ascii_tokens_many_v1(text,sizeof(text)-1,lengths,3,counts)!=1 ||
+    counts[0]!=77 || counts[1]!=77 || counts[2]!=77) return 3;
 return !(sorust_abi_version()==1 && sorust_count_ascii_tokens_v1(text, sizeof(text)-1, &n)==0 && n==3); }
 ''')
     binary = tmp_path / "consumer"
@@ -384,7 +395,126 @@ payload = classes[sys.argv[2]](b"one two")
 assert reference.count_ascii_tokens(payload) == 2
 for backend in ("rust", "compiled-python"):
     assert sorust.count_ascii_tokens(payload, backend=backend) == 2
+    assert sorust.count_ascii_tokens_many([payload, b"a\x00b", b""], backend=backend) == [2, 1, 0]
+assert reference.count_ascii_tokens_many([payload, b"a\x00b", b""]) == [2, 1, 0]
 ''', ROOT / "src/sorust/_compat.py", case])
+
+
+@pytest.mark.parametrize("backend", ["rust", "compiled-python"])
+def test_installed_many_parity(built, backend):
+    run([built[2], "-I", "-c", '''
+import importlib.util, random, sys, sorust
+spec=importlib.util.spec_from_file_location("reference", sys.argv[1])
+reference=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(reference)
+rng=random.Random(4242)
+values=[b"", b"a", b"b", b"\x00\xff", bytes(range(256)), "zażółć gęślą".encode()]
+values += [rng.randbytes(rng.randrange(2048)) for _ in range(300)]
+expected=reference.count_ascii_tokens_many(values)
+assert sorust.count_ascii_tokens_many(values,backend=sys.argv[2]) == expected
+assert sorust.count_ascii_tokens_many(iter(values),backend=sys.argv[2]) == expected
+assert sorust.count_ascii_tokens_many([],backend=sys.argv[2]) == []
+assert sorust.count_ascii_tokens_many([b"a",b"b"],backend=sys.argv[2]) == [1,1]
+''', ROOT / "src/sorust/_compat.py", backend])
+
+
+def test_many_normalizes_buffers_before_ffi(monkeypatch):
+    import sorust
+
+    class Misleading(bytes):
+        def __len__(self): return 1024
+        def __bytes__(self): return b"wrong"
+        def __iter__(self): return iter([32])
+
+    calls = []
+
+    def capture(data, length, lengths, count, output):
+        assert data == b"one twoa\x00b" and length == 10
+        assert list(lengths) == [7, 3, 0] and count == 3
+        output[0], output[1], output[2] = 2, 1, 0
+        calls.append(count)
+        return 0
+
+    monkeypatch.setattr(sorust, "_many_kernel", lambda: (None, capture))
+    assert sorust.count_ascii_tokens_many([Misleading(b"one two"), b"a\x00b", b""]) == [2, 1, 0]
+    assert calls == [3]
+
+
+def test_many_native_error_is_explicit(monkeypatch):
+    import sorust
+
+    def reject(data, length, lengths, count, output):
+        output[0] = 99
+        return 1
+
+    monkeypatch.setattr(sorust, "_many_kernel", lambda: (None, reject))
+    with pytest.raises(sorust.NativeArtifactError, match="status 1"):
+        sorust.count_ascii_tokens_many([b"one"])
+
+
+@pytest.mark.parametrize("inputs", [b"one", [b"a", "text"], [bytearray(b"a")], [memoryview(b"a")], None, 42])
+def test_many_invalid_inputs_fail_before_ffi(monkeypatch, inputs):
+    import sorust
+
+    def forbidden():
+        raise AssertionError("invalid inputs reached native loader")
+
+    monkeypatch.setattr(sorust, "_many_kernel", forbidden)
+    with pytest.raises(TypeError):
+        sorust.count_ascii_tokens_many(inputs)
+
+
+def test_many_invalid_backend():
+    import sorust
+    with pytest.raises(ValueError, match="backend"):
+        sorust.count_ascii_tokens_many([b"one"], backend="unknown")
+
+
+@pytest.mark.parametrize("backend", ["rust", "compiled-python"])
+def test_source_many_empty_batch_requires_native_artifacts(backend):
+    import sorust
+    with pytest.raises(sorust.NativeArtifactError):
+        sorust.count_ascii_tokens_many([], backend=backend)
+
+
+def test_many_legacy_scalar_library_remains_usable(built, tmp_path):
+    clone = tmp_path / "sorust"
+    shutil.copytree(built[3], clone)
+    manifest_path = clone / "sorust-artifacts.json"
+    manifest = json.loads(manifest_path.read_text())
+    entry = next(item for item in manifest["artifacts"] if item["kind"] == "rust-cdylib")
+    source = tmp_path / "legacy.c"
+    source.write_text('''#include <stddef.h>
+#include <stdint.h>
+uint32_t sorust_abi_version(void) { return 1; }
+int32_t sorust_count_ascii_tokens_v1(const uint8_t *data,size_t length,uint64_t *output) {
+if (!data || length!=7 || !output) return 1; *output=2; return 0; }
+''')
+    library = clone / entry["path"]
+    run(["cc", "-shared", "-fPIC", source, "-o", library])
+    entry["sha256"] = hashlib.sha256(library.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest))
+    run([built[2], "-I", "-c", '''
+import sys
+sys.path.insert(0,sys.argv[1])
+import sorust
+assert sorust.count_ascii_tokens(b"one two") == 2
+try: sorust.count_ascii_tokens_many([b"one two"])
+except sorust.NativeArtifactError as error: assert "batch" in str(error)
+else: raise AssertionError("missing batch symbol silently accepted")
+''', tmp_path])
+
+
+def test_many_missing_compiled_entry_is_explicit(built):
+    run([built[2], "-I", "-c", '''
+import sorust
+assert sorust.count_ascii_tokens(b"one two",backend="compiled-python") == 2
+from sorust import _compat
+del _compat.count_ascii_tokens_many
+try: sorust.count_ascii_tokens_many([b"one two"],backend="compiled-python")
+except sorust.NativeArtifactError as error: assert "batch" in str(error)
+else: raise AssertionError("missing compiled batch entry silently accepted")
+'''])
 
 
 def test_rust_consumer_reuses_rlib(tmp_path):

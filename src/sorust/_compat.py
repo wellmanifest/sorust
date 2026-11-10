@@ -18,3 +18,7 @@ def count_ascii_tokens(data: bytes) -> int:
             count += 1
         inside = not separator
     return count
+
+
+def count_ascii_tokens_many(inputs) -> list[int]:
+    return [count_ascii_tokens(data) for data in inputs]
