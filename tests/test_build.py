@@ -517,6 +517,181 @@ else: raise AssertionError("missing compiled batch entry silently accepted")
 '''])
 
 
+@pytest.mark.parametrize("backend", ["rust", "compiled-python"])
+def test_stream_is_lazy_and_bounds_prefetch(monkeypatch, backend):
+    import sorust
+    consumed, calls = [], []
+
+    def inputs():
+        for value in range(7):
+            consumed.append(value)
+            yield str(value).encode()
+
+    def many(values, *, backend):
+        calls.append((backend, tuple(values)))
+        return [int(value) for value in values]
+
+    monkeypatch.setattr(sorust, "count_ascii_tokens_many", many)
+    results = sorust.iter_ascii_token_counts(inputs(), batch_size=3, backend=backend)
+    assert consumed == calls == []
+    assert next(results) == 0 and consumed == [0, 1, 2]
+    assert next(results) == 1 and next(results) == 2 and consumed == [0, 1, 2]
+    assert next(results) == 3 and consumed == [0, 1, 2, 3, 4, 5]
+    assert list(results) == [4, 5, 6] and consumed == list(range(7))
+    assert [len(values) for _, values in calls] == [0, 3, 3, 1]
+    assert all(selected == backend for selected, _ in calls)
+
+
+@pytest.mark.parametrize("size", [0, -1, sys.maxsize + 1])
+def test_stream_invalid_size_is_eager(size):
+    import sorust
+
+    class Untouched:
+        def __iter__(self):
+            raise AssertionError("source touched")
+
+    with pytest.raises(ValueError, match="batch_size"):
+        sorust.iter_ascii_token_counts(Untouched(), batch_size=size)
+
+
+@pytest.mark.parametrize("size", [True, False, 1.5, "2", None])
+def test_stream_invalid_size_type_is_eager(size):
+    import sorust
+
+    class Untouched:
+        def __iter__(self):
+            raise AssertionError("source touched")
+
+    with pytest.raises(TypeError, match="batch_size"):
+        sorust.iter_ascii_token_counts(Untouched(), batch_size=size)
+
+
+def test_stream_invalid_backend_is_eager():
+    import sorust
+
+    class Untouched:
+        def __iter__(self):
+            raise AssertionError("source touched")
+
+    with pytest.raises(ValueError, match="backend"):
+        sorust.iter_ascii_token_counts(Untouched(), backend="unknown")
+
+
+def test_stream_accepts_integer_index_size(monkeypatch):
+    import sorust
+
+    class Size:
+        def __index__(self): return 2
+
+    calls = []
+
+    def many(values, *, backend):
+        calls.append(len(values))
+        return [len(value) for value in values]
+
+    monkeypatch.setattr(sorust, "count_ascii_tokens_many", many)
+    assert list(sorust.iter_ascii_token_counts([b"a", b"bb", b""], batch_size=Size())) == [1, 2, 0]
+    assert calls == [0, 2, 1]
+
+
+def test_stream_close_preserves_caller_source(monkeypatch):
+    import sorust
+    consumed, closed = [], []
+
+    def inputs():
+        try:
+            for value in range(7):
+                consumed.append(value)
+                yield str(value).encode()
+        finally:
+            closed.append(True)
+
+    monkeypatch.setattr(sorust, "count_ascii_tokens_many", lambda values, **kwargs: [int(value) for value in values])
+    source = inputs()
+    results = sorust.iter_ascii_token_counts(source, batch_size=3)
+    assert next(results) == 0 and consumed == [0, 1, 2]
+    results.close()
+    assert consumed == [0, 1, 2] and closed == []
+    assert next(source) == b"3"
+    source.close()
+    assert closed == [True]
+
+
+def test_stream_source_error_discards_incomplete_batch(monkeypatch):
+    import sorust
+    marker = RuntimeError("controlled source error")
+    calls = []
+
+    def inputs():
+        yield b"0"
+        yield b"1"
+        yield b"2"
+        raise marker
+
+    def many(values, **kwargs):
+        calls.append(tuple(values))
+        return [int(value) for value in values]
+
+    monkeypatch.setattr(sorust, "count_ascii_tokens_many", many)
+    results = sorust.iter_ascii_token_counts(inputs(), batch_size=2)
+    assert next(results) == 0 and next(results) == 1
+    with pytest.raises(RuntimeError) as error:
+        next(results)
+    assert error.value is marker and calls == [(), (b"0", b"1")]
+
+
+def test_stream_native_error_precedes_source_consumption(monkeypatch):
+    import sorust
+
+    class Untouched:
+        def __iter__(self):
+            raise AssertionError("source touched")
+
+    def reject(values, **kwargs):
+        assert values == []
+        raise sorust.NativeArtifactError("controlled missing capability")
+
+    monkeypatch.setattr(sorust, "count_ascii_tokens_many", reject)
+    results = sorust.iter_ascii_token_counts(Untouched())
+    with pytest.raises(sorust.NativeArtifactError, match="capability"):
+        next(results)
+
+
+@pytest.mark.parametrize("backend", ["rust", "compiled-python"])
+def test_source_stream_empty_requires_native_artifacts(backend):
+    import sorust
+    with pytest.raises(sorust.NativeArtifactError):
+        list(sorust.iter_ascii_token_counts([], backend=backend))
+
+
+@pytest.mark.parametrize("backend", ["rust", "compiled-python"])
+def test_installed_stream_parity_and_errors(built, backend):
+    run([built[2], "-I", "-c", r'''
+import itertools, random, sys, sorust
+rng=random.Random(9876)
+class Misleading(bytes):
+    def __len__(self): return 1024
+    def __bytes__(self): return b"wrong"
+    def __iter__(self): return iter([32])
+values=[b"",b"a\x00b",bytes(range(256)),"zażółć gęślą".encode(),Misleading(b"one two")]
+values += [rng.randbytes(rng.randrange(1024)) for _ in range(300)]
+expected=sorust.count_ascii_tokens_many(values,backend=sys.argv[1])
+for size in [1,7,256,1000]:
+    assert list(sorust.iter_ascii_token_counts(iter(values),batch_size=size,backend=sys.argv[1])) == expected
+assert list(sorust.iter_ascii_token_counts([],backend=sys.argv[1])) == []
+infinite=sorust.iter_ascii_token_counts(itertools.repeat(b"one two"),batch_size=3,backend=sys.argv[1])
+assert list(itertools.islice(infinite,5)) == [2]*5
+infinite.close()
+source=iter([b"one",b"two","invalid",b"four",b"five"])
+results=sorust.iter_ascii_token_counts(source,batch_size=2,backend=sys.argv[1])
+assert next(results)==1 and next(results)==1
+try: next(results)
+except TypeError: pass
+else: raise AssertionError("invalid batch accepted")
+assert next(source)==b"five"
+''', backend])
+
+
 def test_rust_consumer_reuses_rlib(tmp_path):
     target = tmp_path / "target"
     run(["cargo", "test", "--locked", "--offline", "--manifest-path",
