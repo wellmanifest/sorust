@@ -1,6 +1,7 @@
 """Guards for the optional offline real-consumer developer pilot."""
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import subprocess
 import zipfile
@@ -83,7 +84,25 @@ def test_wheel_rejects_stale_backend(tmp_path):
         archive.writestr("sorust/__init__.py", (pilot.ROOT / "src/sorust/__init__.py").read_bytes())
         archive.writestr("sorust/backend.py", "stale backend")
     with pytest.raises(ValueError, match="match this checkout"):
-        pilot.check_wheel(wheel, pilot.ROOT)
+        pilot.check_wheel(wheel, pilot.ROOT, {})
+
+
+@pytest.mark.parametrize("mismatch", ["manifest", "artifact"])
+def test_wheel_binds_reused_native_artifacts(tmp_path, mismatch):
+    wheel = tmp_path / "mismatch.whl"
+    expected = {"artifacts": [{"path": "_native/kernel.so", "sha256": pilot.digest(b"expected")}],
+                "headers": []}
+    supplied = copy.deepcopy(expected)
+    if mismatch == "manifest":
+        supplied["artifacts"][0]["sha256"] = pilot.digest(b"other")
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name in ["__init__.py", "backend.py"]:
+            archive.writestr("sorust/" + name, (pilot.ROOT / "src/sorust" / name).read_bytes())
+        archive.writestr("sorust/sorust-artifacts.json", json.dumps(supplied))
+        archive.writestr("sorust/_native/kernel.so", b"other")
+    diagnostic = "artifact manifest" if mismatch == "manifest" else "native artifact bytes"
+    with pytest.raises(ValueError, match=diagnostic):
+        pilot.check_wheel(wheel, pilot.ROOT, expected)
 
 
 @pytest.mark.parametrize("mode", ["wheel", "exported"])

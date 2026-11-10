@@ -73,11 +73,17 @@ def new_output(root, requested):
     return path
 
 
-def check_wheel(wheel, root):
+def check_wheel(wheel, root, expected_manifest):
     with zipfile.ZipFile(wheel) as archive:
         for name in ["__init__.py", "backend.py"]:
             if archive.read("sorust/" + name) != (root / "src/sorust" / name).read_bytes():
                 raise ValueError("Sorust wheel must match this checkout's runtime and backend")
+        manifest = json.loads(archive.read("sorust/sorust-artifacts.json"))
+        if manifest != expected_manifest:
+            raise ValueError("Sorust wheel must match the installed artifact manifest")
+        for item in manifest["artifacts"] + manifest["headers"]:
+            if digest(archive.read("sorust/" + item["path"])) != item["sha256"]:
+                raise ValueError("Sorust wheel contains mismatched native artifact bytes")
 
 
 def execute(args, cwd, log, *, environment=None, timeout=600):
@@ -200,12 +206,13 @@ def pilot(args):
     import sorust
 
     inputs = snapshot(args.consumer_root, args.revision)
-    check_wheel(args.sorust_wheel, ROOT)
+    manifest = sorust.verify_artifacts()
+    check_wheel(args.sorust_wheel, ROOT, manifest)
     if not args.rust_rlib.is_file() or args.rust_rlib.is_symlink():
         raise ValueError("rust-rlib must be a regular prebuilt library")
     import sorust.backend
+    assert Path(sorust.__file__).read_bytes() == (ROOT / "src/sorust/__init__.py").read_bytes()
     assert Path(sorust.backend.__file__).read_bytes() == (ROOT / "src/sorust/backend.py").read_bytes()
-    manifest = sorust.verify_artifacts()
     rustc = subprocess.check_output(["rustc", "-vV"], text=True).strip()
     if rustc != manifest["rustc"]:
         raise ValueError("rlib consumer requires the Sorust artifact's exact Rust toolchain")
