@@ -1,0 +1,109 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-008",
+  "summary": "Bound batch memory with streaming token counts",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-008/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "tests/benchmark_count_many.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "ef788e90d9dce61c559418416b8d49c4a8b6ca66",
+    "targetBranch": "main",
+    "outcome": "Bound generator memory with lazy batched token-count iteration, preserve native failure/order/backpressure semantics, measure <=10% of same-wheel eager Python allocation peak and independently publish/merge.",
+    "nonGoals": [
+      "Change scalar/many semantics, Rust/C ABI, dependencies or supported platforms.",
+      "Promise a fixed byte cap regardless of buffer/batch sizes, process RSS reduction, automatic source close or universal speedup.",
+      "Publish a registry release, deploy, migrate consumers or bypass protected review."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 35,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 1
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Validate backend and integer-index batch size1..sys.maxsize (excluding bool) at construction. Inner generator checks native many capability on an empty batch before touching source, then uses islice to collect at most one bounded batch and yields its complete results before reading another. Preserve per-batch errors and caller source ownership. Reuse existing native backend unchanged; extend the reproducible benchmark with warm-kernel tracemalloc comparisons.",
+      "components": [
+        {
+          "name": "stream-runtime",
+          "paths": [
+            "src/sorust/__init__.py"
+          ]
+        },
+        {
+          "name": "tests-and-memory-benchmark",
+          "paths": [
+            "tests/test_build.py",
+            "tests/benchmark_count_many.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [
+        "iter_ascii_token_counts(inputs, *, batch_size=256, backend=rust|compiled-python) -> Generator[int, None, None]; integer-index batch sizes supported"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert via independent protected review; preserve prior dist, source baseline, tests and memory samples before removing owned worktree."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k stream"
+        ],
+        "evidence": "Lazy construction, bounded prefetch and batch calls, early parameter validation, integer-index sizes, source ownership/close, source/native/type error behavior and installed Rust/compiled parity."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -I tests/benchmark_count_many.py --memory",
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Three warm-kernel runs for4096 unique4096B buffers with checksum equality; median streaming Python allocation peak at256 <=10% of eager many in same wheel. Tracemalloc scope/RSS limits explicit; full existing suites remain green."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Existing canonical standardv11 metadata/index/tracking and exact source/receipts; required gates, trusted frozen-head approval/merge, current-owner release and preserved exact worktree cleanup."
+      }
+    ]
+  }
+}

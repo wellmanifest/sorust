@@ -7,12 +7,16 @@ import importlib
 import importlib.machinery
 import importlib.util
 import json
-from collections.abc import Iterable
+import sys
+from collections.abc import Generator, Iterable
 from functools import lru_cache
+from itertools import islice
+from operator import index
 from pathlib import Path
+from typing import SupportsIndex
 
 __version__ = "0.1.0"
-__all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "verify_artifacts", "export_artifacts", "NativeArtifactError"]
+__all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "iter_ascii_token_counts", "verify_artifacts", "export_artifacts", "NativeArtifactError"]
 
 
 class NativeArtifactError(RuntimeError):
@@ -173,3 +177,33 @@ def count_ascii_tokens_many(inputs: Iterable[bytes], *, backend: str = "rust") -
     if status:
         raise NativeArtifactError(f"Rust batch kernel returned status {status}")
     return list(output)
+
+
+def iter_ascii_token_counts(inputs: Iterable[bytes], *, batch_size: SupportsIndex = 256,
+                           backend: str = "rust") -> Generator[int, None, None]:
+    """Lazily yield counts, consuming at most one batch ahead of the caller.
+
+    Validate parameters eagerly. Native capability is checked on first pull,
+    before touching the source. The caller retains ownership of that source.
+    """
+    if isinstance(batch_size, bool):
+        raise TypeError("batch_size must be an integer")
+    try:
+        size = index(batch_size)
+    except TypeError:
+        raise TypeError("batch_size must be an integer") from None
+    if not 1 <= size <= sys.maxsize:
+        raise ValueError("batch_size must be between 1 and sys.maxsize")
+    if backend not in ("rust", "compiled-python"):
+        raise ValueError("backend must be rust or compiled-python")
+
+    def generate():
+        count_ascii_tokens_many([], backend=backend)
+        source = iter(inputs)
+        while True:
+            batch = list(islice(source, size))
+            if not batch:
+                return
+            yield from count_ascii_tokens_many(batch, backend=backend)
+
+    return generate()

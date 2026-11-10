@@ -1,6 +1,7 @@
 """Run against an installed wheel: python -I tests/benchmark_count_many.py."""
 import argparse
 import datetime
+import gc
 import hashlib
 import importlib.util
 import json
@@ -9,13 +10,51 @@ import platform
 import statistics
 import sys
 import timeit
+import time
+import tracemalloc
 
 import sorust
+
+
+def measure_memory():
+    payload = b"x y " * 1024
+    count = 4096
+    expected = count * sorust.count_ascii_tokens(payload)
+    sorust.count_ascii_tokens_many([b"warm"])
+
+    def inputs():
+        for _ in range(count):
+            yield bytes(bytearray(payload))
+
+    modes = {"rust-many": lambda: sum(sorust.count_ascii_tokens_many(inputs()))}
+    if hasattr(sorust, "iter_ascii_token_counts"):
+        modes["rust-stream"] = lambda: sum(sorust.iter_ascii_token_counts(inputs(), batch_size=256))
+    results = {}
+    for name, function in modes.items():
+        samples = []
+        for _ in range(3):
+            gc.collect()
+            tracemalloc.start()
+            try:
+                start = time.perf_counter()
+                actual = function()
+                elapsed = time.perf_counter() - start
+                current, peak = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+            assert actual == expected
+            samples.append({"peak_python_bytes": peak, "remaining_python_bytes": current,
+                            "seconds": elapsed, "checksum": actual})
+        results[name] = {"samples": samples, "median_peak_python_bytes":
+                         statistics.median(sample["peak_python_bytes"] for sample in samples)}
+    return {"buffers": count, "bytes_per_buffer": len(payload), "batch_size": 256,
+            "modes": results, "method": "3 warm-kernel tracemalloc runs; unique bytes via bytes(bytearray(payload)); sum consumes outputs. Python allocation peak, not process RSS or nl-* workload evidence."}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--memory", action="store_true", help="also compare eager and bounded generator memory")
     args = parser.parse_args()
     source = Path(__file__).resolve().parents[1] / "src/sorust/_compat.py"
     spec = importlib.util.spec_from_file_location("reference", source)
@@ -51,6 +90,8 @@ def main():
         "manifest": manifest, "measurements": measurements,
         "method": "Median of 9 warmed repeats; includes input normalization, joining/arrays and result construction. No CPU affinity; microbenchmark, not nl-* workload evidence.",
     }
+    if args.memory:
+        receipt["memory"] = measure_memory()
     rendered = json.dumps(receipt, indent=2) + "\n"
     if args.output:
         args.output.write_text(rendered)
