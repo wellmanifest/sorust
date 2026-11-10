@@ -3,15 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 10,
+  "version": 11,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
-  "scope": "repository",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "38b30c63dbead064c9a8b85da260907e0c181abb",
+  "source_revision": "50293859eebd1c706c078a1d6fde0e453c29cc2c",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -45,7 +44,13 @@
     "receipt:sorust.batch-baseline.069cf83",
     "receipt:sorust.paired-batch.38b30c6",
     "https://doc.rust-lang.org/std/slice/fn.from_raw_parts.html",
-    "https://doc.rust-lang.org/std/ptr/fn.write.html"
+    "https://doc.rust-lang.org/std/ptr/fn.write.html",
+    "https://github.com/wellmanifest/sorust/blob/50293859eebd1c706c078a1d6fde0e453c29cc2c/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/50293859eebd1c706c078a1d6fde0e453c29cc2c/tests/test_build.py",
+    "https://github.com/wellmanifest/sorust/blob/50293859eebd1c706c078a1d6fde0e453c29cc2c/tests/benchmark_count_many.py",
+    "receipt:sorust.stream-baseline.ef788e9",
+    "receipt:sorust.stream-memory.5029385",
+    "https://github.com/wellmanifest/sorust/pull/7"
   ]
 }
 ---
@@ -99,6 +104,17 @@ Pomiar publicznych adapterów w minimalnych venv (Linux x86_64, CPython 3.13.12,
 
 Cel ≥2× dla 256 × 64 B został osiągnięty. Receipt `receipt:sorust.paired-batch.38b30c6` wiąże dokładny wheel, środowiska i próbki; kod odtwarzający: `tests/benchmark_count_many.py`. Czasy skalarne zmieniały się między seriami; cel porównano z pętlą skalarną tego samego wheel-a. To mikrobenchmark powtarzanych buforów, bez dowodu przyspieszenia rzeczywistych procesów `nl-*` ani gwarancji wyniku dla dowolnej paczki. Wcześniejsza seria z przygotowanego venv dała 3,84× dla 64 B; surowe wyniki obu serii pozostają prywatne.
 
+Iterator ograniczający paczki w źródle `50293859eebd1c706c078a1d6fde0e453c29cc2c`: kontrolowany generator 4096 różnych buforów po 4096 B na zainstalowanej bazie `ef788e90d9dce61c559418416b8d49c4a8b6ca66` wymagał mediany 34050649 B alokacji Python w eager-many (receipt `receipt:sorust.stream-baseline.ef788e9`). Nowe `iter_ascii_token_counts` pobiera paczki i używa istniejącego API natywnego. 19 testów celowanych PASS (9,28 s), pełne 90 testów pytest PASS (76,64 s) i 5 testów Cargo PASS. Testy obejmują leniwe pobieranie, ograniczenie prefetcha, argumenty, błędy źródła i elementów, brak artefaktów nawet dla pustego źródła, zachowanie własności źródła oraz rzeczywistą zgodność Rust/compiled-python. Testy Cargo wykonano przed zmianą wyłącznie typów adaptera; kod Rust nie zmienił się.
+
+Porównanie obu API z tego samego wheel-a kandydata w minimalnym venv, Linux x86_64 / CPython 3.13.12: trzy serie z rozgrzanym jądrem, 4096 × 4096 B, nowe `bytes(bytearray(payload))` przy każdym pobraniu, wyniki konsumowane przez `sum`, paczka iteratora 256. Każda seria daje checksum 8388608.
+
+| API | Mediana szczytu alokacji Python, B | MiB |
+| --- | --- | --- |
+| `count_ascii_tokens_many` | 34050665 | 32,47 |
+| `iter_ascii_token_counts` | 2140233 | 2,04 |
+
+Iterator osiągnął 6,29% szczytu eager-many (spadek 93,71%), spełniając lokalny cel ≤10%. Receipt `receipt:sorust.stream-memory.5029385` wiąże źródło, dokładny wheel, digest skryptu, manifest i próbki. `tracemalloc` mierzy alokacje Python, nie RSS całego procesu. To generator kontrolowany, bez dowodu na rzeczywiste procesy `nl-*`, gwarancji stałej liczby bajtów ani celu czasowego. Pomiary czasu podczas śledzenia pamięci nie służą ocenie przyspieszenia. Wersja 11 uzupełnia historyczne ustalenia wersji 10; nie zmienia jądra Rust, ABI C ani obu istniejących API.
+
 <!-- docs:section content -->
 ## Content
 
@@ -115,6 +131,7 @@ Cel ≥2× dla 256 × 64 B został osiągnięty. Receipt `receipt:sorust.paired-
 | SORUST-009 | Adapter Python MUSI przekazać do ABI C długość rzeczywistego, niezmiennego bufora. Podklasy `bytes` w `count_ascii_tokens` normalizuje się z bufora przed obiema implementacjami; zwykłe `bytes` zachowują ścieżkę bez dodatkowej kopii w adapterze. |
 | SORUST-010 | Eksport plików z manifestu MUSI zweryfikować źródła przed utworzeniem nowego celu, zachować względne ścieżki i sumy oraz zapisać manifest po plikach. Nie wolno ponownie używać istniejącego katalogu, pliku ani dowiązania jako celu eksportu. |
 | SORUST-011 | Wsad MUSI zachować kolejność i semantykę każdego bufora oraz odrzucić niespójne długości, przepełnienie sumy, zbyt duże rozmiary tablic i niedozwolone NULL przed zapisem wyników. Ważność i rozłączność pozostałych wskaźników należą do obowiązków klienta C. |
+| SORUST-012 | Iterator MUSI zachować kolejność, pobierać co najwyżej `batch_size` elementów do bieżącej paczki i sprawdzić obsługę natywną przed pobraniem źródła. Nie wywołuje `close()` na źródle należącym do klienta. Błąd nieukończonej paczki nie udostępnia jej częściowych wyników. |
 
 Pierwsze jądro `sorust-kernel` liczy tokeny bajtowe oddzielone dokładnie przez spację i bajty 9–13. Pozostałe bajty, w tym NUL i UTF-8, są nieprzezroczyste. To nie jest tokenizer modelu LLM.
 
@@ -150,6 +167,23 @@ python -I tests/benchmark_count_many.py --output batch-benchmark.json
 ```
 
 W pracy nad repozytorium polecenie uruchamia się przez zatwierdzony `wellman run`, a wynik zapisuje pod prywatnym `.subactor/receipts/`. Benchmark zapisuje próbki, digest skryptu, manifest binarek i wersje środowiska; progów czasowych nie egzekwuje niedeterministyczny test pytest w CI.
+
+### Iterator o ograniczonej wielkości paczki
+
+```python
+from sorust import iter_ascii_token_counts
+
+values = (value for value in [b"one two", b"three", b""])
+assert list(iter_ascii_token_counts(values, batch_size=2)) == [2, 1, 0]
+```
+
+`iter_ascii_token_counts(inputs, *, batch_size=256, backend="rust")` zwraca `Generator[int, None, None]`, obsługujący `close()`. Konstrukcja sprawdza backend oraz wielkość paczki, lecz nie wywołuje nawet `iter(inputs)`. Wielkość używa protokołu indeksu całkowitego (`SupportsIndex`), wyklucza `bool` i musi należeć do `1..sys.maxsize`. Błędny typ daje `TypeError`, zakres lub backend — `ValueError`.
+
+Pierwsze pobranie sprawdza natywną obsługę wsadów wybranego backendu na pustej paczce przed dotknięciem źródła. Puste źródło również wymaga działających artefaktów; brak obsługi nie powoduje zastępczego wykonania Python ani skalarnego. Rust i compiled-python zachowują semantykę oraz normalizację podklas bytes z `count_ascii_tokens_many`.
+
+Iterator pobiera całą paczkę przed zwróceniem pierwszego wyniku tej paczki. Następna paczka jest pobierana dopiero po wydaniu wszystkich wyników poprzedniej. Wyjątek źródła lub niepoprawny element kończy iterator: poprawne wcześniejsze paczki mogły już wydać wyniki, ale błędna/nieukończona paczka nie wydaje żadnego. Kursor źródła może przy tym przesunąć się o całą paczkę. Zamknięcie wyników nie pobiera kolejnych danych i nie wywołuje `close()` na źródle; niewydane wyniki już pobranej paczki są porzucane. Klient zachowujący źródło może nadal go używać, a za jego zamknięcie odpowiada sam.
+
+Ograniczenie dotyczy liczby elementów w paczce i ich łącznych bajtów. Duży pojedynczy bufor lub źródło buforujące dane samodzielnie nadal może wymagać dużo pamięci. Gwarancja nie obejmuje stałego limitu bajtów ani niezależnego zarządzania pamięcią producenta. Pomiar odtwarza się z zainstalowanym wheel-em przez zatwierdzony `wellman run` i polecenie `python -I tests/benchmark_count_many.py --memory --output .subactor/receipts/stream-memory-benchmark.json`; receipt i surowe próbki pozostają prywatne. Progów czasu/pamięci nie dodano do pytest jako niestabilnej bramy CI.
 
 ### Eksport do współdzielenia binarek
 
@@ -238,4 +272,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Każda następna zmiana, w tym wsady w ticket-007, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Każda następna zmiana, w tym iterator w ticket-008, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
