@@ -1,0 +1,110 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-011",
+  "summary": "Prepare verified native scalar counters for repeated calls",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-011/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "tests/benchmark_prepared_counter.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "04e38d529532538ee9adbeb38b509bf95fc052e5",
+    "targetBranch": "main",
+    "outcome": "Provide an explicit prepared native scalar callable that audits artifacts at preparation and binds native function/library for repeated calls; preserve existing APIs and prove same-wheel compiled64B steady-state >=20x speedup with preparation measured separately. Independently publish/merge and preserve/release owned worktree.",
+    "nonGoals": [
+      "Change existing scalar/many/stream checks/behavior, Rust/C ABI, dependencies or platform support.",
+      "Revalidate files on every prepared call, implement process hot reload, change generic consumer backends, claim real nl-* workload or Rust speedup.",
+      "Publish registry release/deploy, migrate consumers or bypass protected delivery."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 35,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 1
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Add prepare_ascii_token_counter returning Callable[[bytes], int]. Validate backend eagerly; compiled preparation uses existing verified native loader and requires a callable scalar entry; Rust preparation explicitly audits artifacts then binds existing ABI-checked kernel. Private slotted callable retains native entry/CDLL, normalizes bytes subclasses from actual buffer, passes ordinary bytes unchanged and owns fresh uint64 output per Rust call. Prepared calls keep the binding without filesystem verification; explicit verify/new preparation audits drift. Existing APIs unchanged; process loader caches do not hot-reload. Reproduce warm timing and constructor costs in an installed-wheel benchmark; thresholds stay outside CI.",
+      "components": [
+        {
+          "name": "prepared-native-runtime",
+          "paths": [
+            "src/sorust/__init__.py"
+          ]
+        },
+        {
+          "name": "validation-and-benchmark",
+          "paths": [
+            "tests/test_build.py",
+            "tests/benchmark_prepared_counter.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [
+        "prepare_ascii_token_counter(*, backend=rust|compiled-python) -> Callable[[bytes], int]"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert through protected independent review; preserve previous local dist, baseline/timing receipts and all generated worktree data before cleanup."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k prepared"
+        ],
+        "evidence": "Eager invalid-backend/missing artifacts/entry failures; bound lookup, actual-buffer normalization, plain-bytes identity, FFI error and retained CDLL lifetime; installed both-backend random/subclass/empty/threaded parity; safe header drift snapshot semantics and fresh audit rejection without editing loaded .so."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -I tests/benchmark_prepared_counter.py --output .subactor/receipts/prepared-counter-benchmark.json",
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": ">=20x median compiled-python prepared vs existing public scalar for64B in same wheel,7 warmed series, construction cost separate; correctness and hashes/environment bound. No CPU affinity or nl-* claim and no CI timing threshold. Full suites and final build/export/installed smoke pass."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Canonical standardv15 metadata/index/tracking, explicit preparation integrity/lifetime/cache contract and exact source/receipts; local/required remote gates, frozen independent approval/merge, owner release and preserved exact worktree cleanup/audit."
+      }
+    ]
+  }
+}

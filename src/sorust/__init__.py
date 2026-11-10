@@ -8,7 +8,7 @@ import importlib.machinery
 import importlib.util
 import json
 import sys
-from collections.abc import Generator, Iterable
+from collections.abc import Callable, Generator, Iterable
 from functools import lru_cache
 from itertools import islice
 from operator import index
@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import SupportsIndex
 
 __version__ = "0.1.0"
-__all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "iter_ascii_token_counts", "verify_artifacts", "export_artifacts", "NativeArtifactError"]
+__all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "iter_ascii_token_counts",
+           "prepare_ascii_token_counter", "verify_artifacts", "export_artifacts", "NativeArtifactError"]
 
 
 class NativeArtifactError(RuntimeError):
@@ -137,6 +138,49 @@ def count_ascii_tokens(data: bytes, *, backend: str = "rust") -> int:
     if status:
         raise NativeArtifactError(f"Rust kernel returned status {status}")
     return output.value
+
+
+class _PreparedAsciiTokenCounter:
+    __slots__ = ("_function", "_library")
+
+    def __init__(self, function, library=None):
+        self._function = function
+        self._library = library
+
+    def __call__(self, data: bytes) -> int:
+        if not isinstance(data, bytes):
+            raise TypeError("data must be bytes")
+        if type(data) is not bytes:
+            data = memoryview(data).tobytes()
+        if self._library is None:
+            return self._function(data)
+        output = ctypes.c_uint64()
+        status = self._function(data, len(data), ctypes.byref(output))
+        if status:
+            raise NativeArtifactError(f"Rust kernel returned status {status}")
+        return output.value
+
+
+def prepare_ascii_token_counter(*, backend: str = "rust") -> Callable[[bytes], int]:
+    """Audit artifacts and bind a native scalar counter for repeated calls.
+
+    The callable retains its native entry and Rust library. Calls do not audit
+    files again; use verify_artifacts or prepare anew to detect on-disk drift.
+    Process loader caches remain in effect; this is not a hot-reload API.
+    """
+    if backend == "compiled-python":
+        try:
+            function = _compiled().count_ascii_tokens
+        except AttributeError as error:
+            raise NativeArtifactError("Compiled Python scalar entry required") from error
+        if not callable(function):
+            raise NativeArtifactError("Compiled Python scalar entry required")
+        return _PreparedAsciiTokenCounter(function)
+    if backend != "rust":
+        raise ValueError("backend must be rust or compiled-python")
+    verify_artifacts()
+    library, function = _kernel()
+    return _PreparedAsciiTokenCounter(function, library)
 
 
 @lru_cache(maxsize=1)
