@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 16,
+  "version": 17,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "f1e93f11bfba382cd55fd268d908047c5089387d",
+  "source_revision": "9cd707bff4ab5c71d2e53f35eefd807467d6822f",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -78,7 +78,14 @@
     "receipt:sorust.build-script-baseline.ea3b05b",
     "https://doc.rust-lang.org/cargo/reference/manifest.html#the-build-field",
     "receipt:sorust.build-script-targeted.f1e93f1",
-    "receipt:sorust.build-script-validation.f1e93f1"
+    "receipt:sorust.build-script-validation.f1e93f1",
+    "https://github.com/wellmanifest/sorust/blob/9cd707bff4ab5c71d2e53f35eefd807467d6822f/tests/benchmark_nl_dsl_pilot.py",
+    "https://github.com/wellmanifest/sorust/blob/9cd707bff4ab5c71d2e53f35eefd807467d6822f/tests/test_nl_dsl_pilot.py",
+    "https://github.com/wellmanifest/nl-dsl-llm/blob/aa47c8752f1ea446208f6dfb7a018ad02e92250a/standard/nl_dsl_llm.py",
+    "receipt:sorust.nl-dsl-build-baseline.16e802b",
+    "receipt:sorust.nl-pilot-targeted.9cd707b",
+    "receipt:sorust.nl-pilot-validation.9cd707b",
+    "receipt:sorust.nl-pilot-practical.9cd707b"
   ]
 }
 ---
@@ -178,6 +185,24 @@ Cel ≥20× dla 64 B został osiągnięty (6384,7× w tym pomiarze). Porównywan
 Korekta odcisku skryptu Cargo w źródle `f1e93f11bfba382cd55fd268d908047c5089387d`: na bazie `ea3b05b39810b0add6b8d21e3fbd486d9432b96d` dwie budowy zmieniające wyłącznie `build.rs` dały różne biblioteki Rust i wynik funkcji 49 → 50, ale identyczny `source_sha256` (`88ab6ec654dfd6103fcdebdaf4e273376490bedc301de9cfc0e46304cbfe65f3`). Receipt `receipt:sorust.build-script-baseline.ea3b05b` wiąże oba wheel-e, skrypty i wynik osobnych procesów. Sumy samych artefaktów działały poprawnie; brak dotyczył zestawu źródeł manifestu. Wersja 16 zachowuje historyczne ustalenia wersji 15 i uzupełnia kontrakt źródeł.
 
 Walidacja źródła: 17 testów celowanych PASS (211,26 s), pełny zestaw 121 testów pytest PASS (345,51 s) i 5 testów Cargo PASS. Testy domyślnego skryptu, jawnego `true`, własnej lokalizacji i ścieżki do współdzielonego pliku budują sdist → wheel dwukrotnie; zmiana wyłącznie skryptu zmienia odcisk, hash biblioteki i rzeczywisty wynik Rust. Osobne procesy ładują oddzielne pliki, bez zapisu do mapowanej biblioteki. Sprawdzane są obecność skryptu w sdist i sumy wszystkich artefaktów. Dalsze przypadki obejmują brak/wyłączenie skryptu, błędne typy, brak jawnego wejścia, katalog, ścieżki absolutne/wychodzące poza projekt i symlinki pliku/rodzica, z odmową przed utworzeniem `build`. Receipty: `receipt:sorust.build-script-targeted.f1e93f1`, `receipt:sorust.build-script-validation.f1e93f1`. Runtime, jądro, nagłówek i ABI zachowują bajty bazy; zmienił się backend budowania i testy.
+
+Pilot deweloperski w źródle `9cd707bff4ab5c71d2e53f35eefd807467d6822f` rozszerza walidację backendu Sorust o rzeczywisty, niezmieniony moduł normatywny `standard/nl_dsl_llm.py` z przypiętego wejścia `wellmanifest/nl-dsl-llm@aa47c8752f1ea446208f6dfb7a018ad02e92250a`. Nie modyfikuje repozytorium konsumenta ani jego kanonicznej specyfikacji. Buduje lokalną dystrybucję próbną `sorust-nl-dsl-pilot==0.0.0` z nakładką PEP 517; nie stanowi migracji lub wydania właściwego projektu. Wersja 17 zachowuje historyczne ustalenia wersji 16.
+
+Walidacja narzędzia: 19 testów pilota PASS (1,65 s), 121 niezmienionych regresji rdzenia Sorust PASS i 5 testów Cargo PASS. Pełne wywołanie pytest na `8af2e367d892d499330fc11b794db3754152d0e3` dało 138 PASS (501,89 s); późniejsze wzmocnienie powiązania wejściowego wheel-a z faktycznie reużytymi bajtami binarek pokrywa komplet 19 testów na `9cd707bff4ab5c71d2e53f35eefd807467d6822f`. Źródła i testy rdzenia pozostały identyczne. Łącznie pokryto 140 unikalnych aktualnych przypadków; nie oznaczamy tego jako pojedynczego przebiegu 140 testów na końcowym HEAD. Receipt `receipt:sorust.nl-pilot-validation.9cd707b` wiąże oba XML, rewizje i sprawdzenie niezmienności.
+
+Końcowy pilot na checkout `b7731eae9cd88b50eb2ea3680e5cb7cc457a3ebe`, z identycznymi bajtami skryptu `9cd707b…`, przeszedł po 8 oryginalnych testów zgodności w każdym z trzech trybów. Zgodne są obserwacje parsera, serializacji i wyników mostka; hashe `.so` w wheel-u i eksporcie są identyczne. Działa wspólna wyeksportowana biblioteka Rust oraz osobny klient `.rlib` z wynikiem `3 3 0`. Obiecanego zasobu JSON brakuje w samym eksporcie binarek, a jawne dostarczenie przypiętego pliku przywraca działanie. Raport SHA-256 `cf44cbf094b34c5f0c350e2dfb3a89786c174267cbe25c5f21d2920dec6ff483`, receipt `receipt:sorust.nl-pilot-practical.9cd707b`, wiąże wejścia, binarki i pełne serie.
+
+Pomiary pilota na Linux x86_64 / CPython 3.13.12: mediana siedmiu rozgrzanych serii po 1000 powtórzeń całego wskazanego korpusu, w µs na korpus. Wszystkie trzy procesy pracują w tym samym minimalnym venv, kolejno po zakończeniu testów i kompilacji tego zadania.
+
+| Korpus | Źródło Python | Wheel `.so` | Eksport `.so` |
+| --- | ---: | ---: | ---: |
+| Parser, 15 wejść | 3253,33 | 3033,93 | 3171,53 |
+| Parse → canonical, 5 poleceń | 25,57 | 24,22 | 31,60 |
+| Mostek, 4 żądania w pamięci | 407,39 | 383,13 | 236,62 |
+
+Ilorazy median source/wheel wynoszą odpowiednio 1,072×, 1,056× i 1,063×. Rozrzut jest duży: parser source 3071,70–5189,93 µs, wheel 1059,05–4900,61 µs; ten sam kod `.so` daje również różne wyniki wheel/export. Ten pomiar nie ustala wiarygodnej przewagi czasowej 6–7% ani przewagi eksportu. Potwierdza pakowanie i zgodność konkretnego modułu; zysku w produkcji nie zmierzono. W profilu 15000 wywołań parsera wystąpiło 471000 `re.search` i 465000 `re.escape`; samo przeniesienie otaczającego kodu do Cython nie usuwa tej pracy.
+
+Dla tego samego zgodnego podzbioru krótkich wejść, w procesie wheel-a, Rust batch z UTF-8 i przygotowaniem buforów miał medianę 13,85 µs, a Python `split()` 3,33 µs — około 4,16× krócej po stronie Python. W pozostałych dwóch procesach narzut Rust wyniósł około 3,10× i 4,07×. To pomiar granicy wywołania na małych danych, nie samej pętli Rust ani długich buforów. Cztery próby separatorów Unicode dały Python=2 i Rust=1, z zachowaniem argumentu `status=OPEN` przez oryginalny parser. Pilot nie zmienia algorytmu konsumenta ani nie podstawia niezgodnej semantyki.
 
 <!-- docs:section content -->
 ## Content
@@ -340,6 +365,32 @@ Konsument MUSI umieścić skrypt w sdist, także przy własnej nazwie lub lokali
 
 `python-modules` przyjmuje również kilka modułów, w tym zagnieżdżone, np. `["nl_component._legacy", "nl_component.nested._fast"]`. Wheel zawiera ich rozszerzenia i jedno jądro Rust. Usuwa się tylko źródła jawnie wybrane do kompilacji; niewybrane moduły pozostają zwykłym Pythonem. Pakiet zachowuje odpowiednie inicjalizatory lub właściwą strukturę namespace; jawnie wybrane `__init__.py` można również kompilować jak poniżej.
 
+### Powtarzalny pilot na module NL DSL
+
+Narzędzie Sorust `tests/benchmark_nl_dsl_pilot.py` korzysta z lokalnego checkoutu konsumenta, dokładnego 40-znakowego SHA commitu oraz wcześniej zbudowanych wheel-a Sorust i `.rlib`. Czyta pliki z obiektów Git, dzięki czemu zmiany robocze konsumenta nie zmieniają wejścia i nie są nadpisywane. Nie utrzymuje kopii implementacji NL w źródłach Sorust. Przykład po przygotowaniu tych lokalnych artefaktów:
+
+```sh
+wellman run --root . --allow-primary-venv -- python -I tests/benchmark_nl_dsl_pilot.py \
+  --consumer-root "$NL_DSL_CHECKOUT" \
+  --revision aa47c8752f1ea446208f6dfb7a018ad02e92250a \
+  --sorust-wheel "$SORUST_WHEEL" \
+  --rust-rlib "$SORUST_RLIB" \
+  --output .subactor/cache/nl-dsl-pilot \
+  --number 1000
+```
+
+Zmienne wskazują odpowiednio lokalny checkout NL oraz istniejące pliki wheel i `.rlib`. Wyjście musi być nowym katalogiem pod `.subactor/cache` bieżącego checkoutu, bez symlinków; poprzedniego pomiaru nie nadpisuje się. W linked worktree jawnie dopuszcza się użycie venv jego zarejestrowanego primary. Kod runtime/backendu wheel-a musi odpowiadać bieżącemu źródłu Sorust; jego manifest i wszystkie bajty artefaktów muszą odpowiadać zainstalowanemu pakietowi użytemu do eksportu. Uszkodzony lub inny wheel nie może zostać oznaczony jako źródło reużytej biblioteki. Narzędzie nie pobiera zależności: build używa dostępnego środowiska, Cargo działa offline, a instalacja lokalnego wheel-a konsumenta ma `--no-index --no-deps`.
+
+Pilot kompiluje oryginalny inicjalizator `standard` oraz moduł NL. Sprawdza trzy osobne procesy w minimalnym venv: oryginalny Python, zainstalowany wheel z rozszerzeniami oraz samodzielnie eksportowany pakiet. Venv nie zawiera Sorust ani Cython, a PATH workerów nie udostępnia kompilatorów. Wybrane testy zgodności pochodzą z tego samego przypiętego commitu i muszą być niepuste, bez argumentów/fixtures; żadnego nie pomija się milcząco. Porównuje się dane parsera, tekst kanoniczny i wyniki mostka z pominięciem losowego trace ID oraz czasu odpowiedzi. To sprawdzenie konkretnego modułu i korpusu, nie pełnej aplikacji gRPC/LLM ani ruchu produkcyjnego.
+
+Eksport Sorust przenosi wyłącznie artefakty i nagłówki manifestu. Moduł NL potrzebuje również `semantic-profile.json`. Pilot najpierw wymaga rzeczywistego błędu importu bez tego zasobu, następnie dostarcza go jawnie jako plik danych konsumenta i sprawdza jego hash względem przypiętego wejścia przed pomiarem. Ten sidecar nie staje się automatycznie zasobem weryfikowanym przez `verify_artifacts`; jego pakowanie i integralność pozostają odpowiedzialnością konsumenta.
+
+Wszystkie trzy tryby używają tej samej wyeksportowanej biblioteki Rust z wcześniejszego wheel-a Sorust, przez ABI C v1. Oddzielny klient Rust linkuje istniejące `.rlib` bez ponownej kompilacji jądra, z dokładnie zgodnym toolchainem i `panic=abort`. Raport wiąże hashe obu wejściowych binarek i wynik klienta. Budowa próbnego wheel-a nadal korzysta z niezmienionych plików crate Sorust w prywatnej nakładce; nie oznacza to usunięcia Cargo z procesu budowania nowych wheel-i.
+
+Raport `result.json` przechowuje rewizje, hashe źródeł/artefaktów/skryptu, wejścia, wyniki zgodności, loader, środowisko, siedem rozgrzanych serii czasu i profil parsera. Domyślnie seria ma 1000 powtórzeń całego korpusu. Czas FFI obejmuje UTF-8, łączenie buforów, tablice długości i własne wyjście; budowa, import i przygotowanie są poza czasem steady-state. `cProfile` nie rozkłada wnętrza Rust/Cython. Brak przypięcia CPU i współdzielony host ograniczają interpretację; raport nie wymusza przyspieszenia ani progu CI.
+
+Licznik Rust zachowuje swój kontrakt separatorów bajtowych. Dla U+00A0, U+2003, U+001C oraz U+3000 Python `str.split()` rozpoznaje separator, natomiast licznik Sorust nie. Pilot wymaga wykazania tej różnicy oraz porównuje czas liczenia tylko na wejściach o zgodnej semantyce. Nie zastępuje licznikiem ASCII parsera Unicode lub estymatora tokenów modelu.
+
 ### Skompilowane inicjalizatory pakietów
 
 Inicjalizator wybiera się przez pełną nazwę zakończoną `.__init__`. Przykładowa lista w istniejącej tabeli `[tool.sorust]`:
@@ -387,4 +438,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Przygotowany licznik scalono przez [PR11](https://github.com/wellmanifest/sorust/pull/11) jako `ea3b05b39810b0add6b8d21e3fbd486d9432b96d`, po niezależnym zatwierdzeniu HEAD `b57267857a6ecfc10566e1d55e95aeaed4425dcf`. Każda następna zmiana, w tym odcisk skryptu Cargo w ticket-012, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Przygotowany licznik scalono przez [PR11](https://github.com/wellmanifest/sorust/pull/11) jako `ea3b05b39810b0add6b8d21e3fbd486d9432b96d`, po niezależnym zatwierdzeniu HEAD `b57267857a6ecfc10566e1d55e95aeaed4425dcf`. Odcisk skryptu Cargo scalono przez [PR12](https://github.com/wellmanifest/sorust/pull/12) jako `16e802b5d16fba5372fc4333a4ed05a6a9bb8e7f`, po niezależnym zatwierdzeniu HEAD `85892adc316c02803fbf4f6f6f892f583452a7d1`. Każda następna zmiana, w tym pilot w ticket-013, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
