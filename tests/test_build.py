@@ -374,7 +374,7 @@ def test_rust_bytes_passthrough_avoids_copy(monkeypatch):
 @pytest.mark.parametrize("case", ["plain", "length", "iteration", "bytes", "combined"])
 def test_installed_bytes_subclass_parity(built, case):
     _, _, python, _ = built
-    run([python, "-I", "-c", '''
+    run([python, "-I", "-c", r'''
 import importlib.util
 import sys
 import sorust
@@ -402,7 +402,7 @@ assert reference.count_ascii_tokens_many([payload, b"a\x00b", b""]) == [2, 1, 0]
 
 @pytest.mark.parametrize("backend", ["rust", "compiled-python"])
 def test_installed_many_parity(built, backend):
-    run([built[2], "-I", "-c", '''
+    run([built[2], "-I", "-c", r'''
 import importlib.util, random, sys, sorust
 spec=importlib.util.spec_from_file_location("reference", sys.argv[1])
 reference=importlib.util.module_from_spec(spec)
