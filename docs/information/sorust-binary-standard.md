@@ -90,7 +90,10 @@
     "https://github.com/wellmanifest/sorust/blob/7a2ce11ad410b0428acb04154c1fdc0668f518b4/src/sorust/__init__.py",
     "https://github.com/wellmanifest/sorust/blob/7a2ce11ad410b0428acb04154c1fdc0668f518b4/tests/test_resources.py",
     "receipt:sorust.resource-baseline.55bb710",
-    "receipt:sorust.resources-targeted.7a2ce11"
+    "receipt:sorust.resources-targeted.7a2ce11",
+    "receipt:sorust.resources-validation.7a2ce11",
+    "receipt:sorust.resources-practical.7a2ce11",
+    "receipt:sorust.resources-compatibility.7a2ce11"
   ]
 }
 ---
@@ -211,7 +214,13 @@ Dla tego samego zgodnego podzbioru krótkich wejść, w procesie wheel-a, Rust b
 
 Zasoby paczki w źródle `7a2ce11ad410b0428acb04154c1fdc0668f518b4`: na bazie `55bb710930d9d83d31c9dd5d9a221872c813af08` kopia rzeczywistego wheel-a NL przyjmowała zmianę wyłącznie whitespace w `semantic-profile.json` bez błędu `verify_artifacts`, a eksport pomijał ten plik. To granica dotychczasowego formatu v1, który nie deklarował zasobów, bez obejścia hashowania binarek. Receipt `receipt:sorust.resource-baseline.55bb710` wiąże hashe przed/po i obserwacje. Wersja 18 dodaje jawne zasoby i format manifestu v2; historyczne pomiary oraz manualny tryb pilota z wersji 17 pozostają zapisane.
 
-43 testy celowane PASS (74,18 s) i 5 testów Cargo PASS. Test dwukrotnie buduje sdist → wheel z czterema skompilowanymi modułami, bez deklaracji package-data i z `include-package-data=false`: JSON w katalogu głównym i binarny plik danych w podpakiecie trafiają do sdist, wheel-a i eksportu. Zmiana samego JSON-a zmienia odcisk źródeł i wynik skompilowanej funkcji. Eksport działa w nowym venv bez Sorust/Cython. Pozostałe przypadki obejmują niepoprawne/niekanoniczne/reservowane ścieżki, brak pliku, symlinki pliku i rodzica, kolizje manifestu, checksum drift oraz ponowną kontrolę snapshotu przed utworzeniem wyjścia. Receipt: `receipt:sorust.resources-targeted.7a2ce11`.
+43 testy celowane PASS (74,18 s) i 5 testów Cargo PASS. Test dwukrotnie buduje sdist → wheel z czterema skompilowanymi modułami, bez deklaracji package-data i z `include-package-data=false`: JSON w katalogu głównym i binarny plik danych w podpakiecie trafiają do sdist, wheel-a i eksportu. Zmiana samego JSON-a zmienia odcisk źródeł i wynik skompilowanej funkcji. Eksport działa w nowym venv bez Sorust/Cython. Pozostałe przypadki obejmują niepoprawne/niekanoniczne/zastrzeżone ścieżki, brak pliku, symlinki pliku i rodzica, kolizje manifestu, checksum drift oraz ponowną kontrolę snapshotu przed utworzeniem wyjścia. Receipt: `receipt:sorust.resources-targeted.7a2ce11`.
+
+Pełna walidacja źródła `7a2ce11…`: 183 testy pytest PASS (340,19 s) i 5 testów Cargo PASS, receipt `receipt:sorust.resources-validation.7a2ce11`. Poza dodaną obsługą metadanych/zasobów algorytmy natywne i ABI C pozostały bez zmian.
+
+Rzeczywisty pilot `--manifest-resources` na checkout `b33a5c701b7a8d97a55d9519c2fc6850a8c782d3`, z kodem identycznym z `7a2ce11…`, zbudował oryginalny moduł NL z przypiętego commitu `aa47c8752f1ea446208f6dfb7a018ad02e92250a`. Nowy manifest v2 wskazuje `semantic-profile.json` o SHA-256 `7319797e7283808622da6e4afed1b34dc564c0c7a6a720084a68c60674cf2eda`. Plik dotarł do eksportu bez ręcznej kopii, import w minimalnym venv działa, a kontrolowana zmiana whitespace została odrzucona przez audyt. Po przywróceniu zatwierdzonych bajtów ponownie przeszły po 8 oryginalnych testów w trybach źródłowym, wheel i eksport (24 wykonania), z takimi samymi obserwacjami. Reużycie wspólnego Rust `.so` i istniejącego `.rlib` dało oczekiwane wyniki. Użyto `--number 10` wyłącznie do kontroli funkcjonalnej; nie wyprowadza się nowego wniosku czasowego. Raport SHA-256 `df3b92fb7146091a32854eb1456afae447d5850427512d59123663f169d87b26`, receipt `receipt:sorust.resources-practical.7a2ce11`.
+
+Test rzeczywistego starszego czytnika odczytał kod runtime z wcześniej dostarczonego wheel-a bazy `55bb710` (SHA-256 wheel-a `a07007b64d575551e5a9a3ba67e8ee525dfdd0711abce95d99b2a7b7e843bc76`, kod runtime `b3f44e56206a823978423862a8dc3c83607113701377c66ea8dd0f587d8b181c`). Oba wywołania — weryfikacja i eksport paczki v2 — zakończyły się `NativeArtifactError: unsupported manifest or ABI`, bez utworzenia celu eksportu. Ten czytnik zaakceptował nową paczkę bez zasobów w v1, a nowy runtime zaakceptował rzeczywistą starszą paczkę v1. Receipt: `receipt:sorust.resources-compatibility.7a2ce11`.
 
 <!-- docs:section content -->
 ## Content
@@ -382,9 +391,9 @@ Konsument może dodać opcjonalne pole do swojej istniejącej tabeli `[tool.soru
 resources = ["semantic-profile.json", "nested/vocabulary.bin"]
 ```
 
-Ścieżki odnoszą się do `src/<artifact-package>/`, np. `src/standard/semantic-profile.json`. To jawne pliki, bez rozwijania globów ani automatycznego odkrywania pozostałej zawartości paczki. Mogą zawierać Unicode. Wymagane są unikalne, kanoniczne względne ścieżki POSIX do zwykłych plików, bez `..`, aliasów `./`/podwójnych separatorów, backslash, dwukropka, znaków kontrolnych i symlinków w ścieżce. Katalog `_native`, korzeń `sorust-artifacts.json` i jego podścieżki oraz typowe rozszerzenia kodu Python/binarek są zastrzeżone. Błąd wejścia zatrzymuje konfigurację przed Cython/Cargo.
+Ścieżki odnoszą się do `src/<artifact-package>/`, np. `src/standard/semantic-profile.json`. To jawne pliki, bez rozwijania globów ani automatycznego odkrywania pozostałej zawartości paczki. Mogą zawierać Unicode. Wymagane są unikalne, kanoniczne względne ścieżki POSIX do zwykłych plików, bez `..`, aliasów `./`/podwójnych separatorów, backslash, dwukropka, znaków kontrolnych i symlinków w ścieżce. Katalog `_native`, korzeń `sorust-artifacts.json` i jego podścieżki oraz rozszerzenia wykonywalnych modułów Python i dynamicznych bibliotek (`.py`, `.pyc`, `.pyo`, `.pyw`, `.so`, `.pyd`, `.dll`, `.dylib`) są zastrzeżone. Błąd wejścia zatrzymuje konfigurację przed Cython/Cargo.
 
-Backend dołącza zasoby do listy źródeł sdist przez istniejący hook `build_ext.get_source_files` i jawnie kopiuje je do świeżego wheel-a. Nie trzeba dodawać dla nich `package-data`; test obejmuje także `include-package-data=false`. Celowe reguły wykluczania w własnym `MANIFEST.in` nie są nadpisywane. Wheel budowany ze sdist musi otrzymać wszystkie zadeklarowane wejścia; konfiguracja odrzuca brakujący plik. Nazwy projektowe i bajty zasobów są również częścią `source_sha256`.
+Backend dołącza zasoby do listy źródeł sdist przez istniejący hook `build_ext.get_source_files` i jawnie kopiuje je do świeżego wheel-a. Nie trzeba dodawać dla nich `package-data`; test obejmuje także `include-package-data=false`. Celowe reguły wykluczania we własnym `MANIFEST.in` nie są nadpisywane. Wheel budowany ze sdist musi otrzymać wszystkie zadeklarowane wejścia; konfiguracja odrzuca brakujący plik. Nazwy projektowe i bajty zasobów są również częścią `source_sha256`.
 
 | Paczka | Emitowany format | Odczyt przez bieżący runtime |
 | --- | --- | --- |
