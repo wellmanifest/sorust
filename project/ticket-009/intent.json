@@ -1,0 +1,104 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-009",
+  "summary": "Prevent stale binaries in repeated consumer wheel builds",
+  "workstream": "integration",
+  "classification": {
+    "kind": "BUG",
+    "priority": "P1",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-009/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/backend.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "b10294160915d5507e8a50ace6a78f2a9db7feeb",
+    "targetBranch": "main",
+    "outcome": "Each repeated consumer wheel build packages only current source selection and artifacts; former compiled source is restored as current Python or absent when removed. Test/build and independently publish/merge, preserve outputs and safely release owned worktree.",
+    "nonGoals": [
+      "Change runtime APIs, Rust/C ABI, metadata/sdist hooks, dependencies, platform support or consumer repositories.",
+      "Purge unknown existing build caches, publish a registry release, deploy or bypass protected delivery."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 35,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 0
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Create a unique temporary build_lib beneath build for each wheel hook and select it through setuptools build command finalization. Route current Python and native outputs through that fresh staging tree; keep Cython/Cargo compiler caches and pre-existing build outputs untouched. Scope staging lifetime around the existing backend wheel hook, with cleanup on return/failure. Metadata/sdist use existing paths.",
+      "components": [
+        {
+          "name": "wheel-backend",
+          "paths": [
+            "src/sorust/backend.py"
+          ]
+        },
+        {
+          "name": "rebuild-consumer-tests",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert through protected independent review; preserve source baseline, installed reproduction, local dist and generated worktree evidence."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k rebuild"
+        ],
+        "evidence": "Actual two wheel-only builds in the same consumer build tree change compilation selection; former source changed/removed. Inspect exact wheel payload and manifest hashes, install second wheel and assert current Python/compiled import behavior."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Full suite including source/sdist/foreign single+nested consumers and scalar/many/stream/native export parity; final wheel/sdist build and installed both-backend/export hash smoke."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent exact-head protected publication"
+        ],
+        "evidence": "Canonical standardv12 metadata/index/tracking, local and required remote gates, frozen independent approval/merge, owner-CAS lease release, preserved generated data and exact worktree terminal audit."
+      }
+    ]
+  }
+}

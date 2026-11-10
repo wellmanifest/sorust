@@ -732,10 +732,7 @@ def count_prompt_tokens(prompt: str) -> int:
     run([python, "-I", "-c", 'from nl_sorust_example import count_prompt_tokens; assert count_prompt_tokens("one two") == 2'])
 
 
-@pytest.mark.parametrize("layout", ["single", "nested"])
-def test_external_consumer_build_backend(built, tmp_path, layout):
-    _, wheel, python, _ = built
-    run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
+def external_project(tmp_path, layout="single"):
     project = tmp_path / "external"
     package = project / "src/nl_atomic_example"
     package.mkdir(parents=True)
@@ -759,6 +756,14 @@ def test_external_consumer_build_backend(built, tmp_path, layout):
     shutil.copytree(ROOT / "crates", project / "crates", ignore=shutil.ignore_patterns("target"))
     shutil.copytree(ROOT / "include", project / "include")
     shutil.copyfile(ROOT / "MANIFEST.in", project / "MANIFEST.in")
+    return project, package, modules
+
+
+@pytest.mark.parametrize("layout", ["single", "nested"])
+def test_external_consumer_build_backend(built, tmp_path, layout):
+    _, wheel, python, _ = built
+    run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
+    project, package, modules = external_project(tmp_path, layout)
     output = tmp_path / "external-dist"
     run([sys.executable, "-I", "-m", "build", "--no-isolation", "--outdir", output, project])
     with zipfile.ZipFile(next(output.glob("*.whl"))) as archive:
@@ -804,6 +809,53 @@ exported = export_artifacts(sys.argv[2], package_dir=package)
 assert verify_artifacts(exported) == manifest
 assert not list(exported.rglob("*.py"))
 ''', layout, tmp_path / "foreign-export"])
+
+
+@pytest.mark.parametrize("former_source", ["changed", "removed"])
+def test_consumer_wheel_rebuild_drops_stale_outputs(built, tmp_path, former_source):
+    _, wheel, python, _ = built
+    run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
+    project, package, _ = external_project(tmp_path)
+    first = tmp_path / "first"
+    run([sys.executable, "-I", "-m", "build", "--wheel", "--no-isolation", "--outdir", first, project])
+    config = project / "pyproject.toml"
+    config.write_text(config.read_text().replace("nl_atomic_example._compat", "nl_atomic_example.untouched"))
+    if former_source == "changed":
+        (package / "_compat.py").write_text("def double(value):\n    return value * 3\n")
+    else:
+        (package / "_compat.py").unlink()
+    second = tmp_path / "second"
+    run([sys.executable, "-I", "-m", "build", "--wheel", "--no-isolation", "--outdir", second, project])
+    rebuilt = next(second.glob("*.whl"))
+    with zipfile.ZipFile(rebuilt) as archive:
+        names = archive.namelist()
+        assert not any(name.startswith("nl_atomic_example/_compat.") and name.endswith(".so") for name in names)
+        assert ("nl_atomic_example/_compat.py" in names) == (former_source == "changed")
+        assert "nl_atomic_example/untouched.py" not in names
+        manifest = json.loads(archive.read("nl_atomic_example/sorust-artifacts.json"))
+        extensions = [item["path"] for item in manifest["artifacts"] if item["kind"] == "python-extension"]
+        assert len(extensions) == 1 and extensions[0].startswith("untouched.")
+        for item in manifest["artifacts"] + manifest["headers"]:
+            assert hashlib.sha256(archive.read("nl_atomic_example/" + item["path"])).hexdigest() == item["sha256"]
+    # Install only the second wheel: stale imports must not depend on a prior install.
+    run([python, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", rebuilt])
+    run([python, "-I", "-c", '''
+import importlib, importlib.machinery, sys
+from nl_atomic_example import untouched
+assert isinstance(untouched.__loader__, importlib.machinery.ExtensionFileLoader)
+assert untouched.identity(42) == 42
+if sys.argv[1] == "changed":
+    from nl_atomic_example import _compat
+    assert isinstance(_compat.__loader__, importlib.machinery.SourceFileLoader)
+    assert _compat.double(9) == 27
+else:
+    try:
+        importlib.import_module("nl_atomic_example._compat")
+    except ModuleNotFoundError:
+        pass
+    else:
+        raise AssertionError("removed module survived rebuild")
+''', former_source])
 
 
 import importlib.util

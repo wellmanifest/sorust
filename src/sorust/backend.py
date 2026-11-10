@@ -11,6 +11,7 @@ import re
 import shutil
 import subprocess
 import sysconfig
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -46,7 +47,7 @@ def configuration(root: Path) -> dict:
     return config
 
 
-def _setup():
+def _setup(build_lib: Path | None = None):
     from Cython.Build import cythonize
     from setuptools import Extension, setup
     from setuptools.command.build_ext import build_ext
@@ -109,8 +110,18 @@ def _setup():
 
     extensions = [Extension(name, [str(Path("src", *name.split(".")).with_suffix(".py"))])
                   for name in config["python-modules"]]
+    commands = {"build_ext": DualBuild}
+    if build_lib is not None:
+        from setuptools.command.build import build
+
+        class WheelBuild(build):
+            def finalize_options(self):
+                super().finalize_options()
+                self.build_lib = str(build_lib)
+
+        commands["build"] = WheelBuild
     setup(ext_modules=cythonize(extensions, build_dir="build/cython", language_level=3),
-          cmdclass={"build_ext": DualBuild})
+          cmdclass=commands)
 
 
 def _source_digest(root: Path, config: dict) -> str:
@@ -125,20 +136,24 @@ def _source_digest(root: Path, config: dict) -> str:
     return digest.hexdigest()
 
 
-def _backend():
+def _backend(build_lib: Path | None = None):
     from setuptools.build_meta import _BuildMetaBackend
 
     class Backend(_BuildMetaBackend):
         def run_setup(self, setup_script="setup.py"):
             if Path(setup_script).exists():
                 raise ValueError("Sorust consumers use pyproject.toml without setup.py")
-            _setup()
+            _setup(build_lib)
 
     return Backend()
 
 
 def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
-    return _backend().build_wheel(wheel_directory, config_settings, metadata_directory)
+    # Reuse compiler caches, but never package payload from a previous build.
+    build_root = Path.cwd().resolve() / "build"
+    build_root.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="sorust-wheel-", dir=build_root) as staging:
+        return _backend(Path(staging)).build_wheel(wheel_directory, config_settings, metadata_directory)
 
 
 def build_sdist(sdist_directory, config_settings=None):
