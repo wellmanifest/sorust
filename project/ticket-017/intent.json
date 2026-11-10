@@ -1,0 +1,117 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-017",
+  "summary": "Consume standalone Rust-only binary components",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-017/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "tests/benchmark_nl_dsl_pilot.py",
+    "tests/test_nl_dsl_pilot.py",
+    "tests/test_rust_components.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "8de2464d896f336e3c27a35cc0001696416973ee",
+    "targetBranch": "main",
+    "outcome": "Accept verified standalone Rust-only component distributions, prove actual Python-free platform wheel as isolated NL build dependency, independently merge and preserve/release checkout.",
+    "nonGoals": [
+      "Change Rust algorithms/C ABI/runtime dependencies/platform coverage, automatic downloads, process-wide deduplication, production native-only source builder profile.",
+      "Consumer-source migration, performance or cross-interpreter test claim, registry release/deploy, protected-policy/Docs adoption changes."
+    ],
+    "complexity": "L",
+    "estimatedMinutes": 85,
+    "budgets": {
+      "maxAffectedComponents": 4,
+      "maxImplementationFiles": 5,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 2
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Add strict sorust.rust-component/v1 with exact required fields schema/abi_version/package/platform/rustc/source_sha256/headers/artifacts; one rust-cdylib and direct canonical _native library/header paths, no Python SOABI/extensions/resources/unknown fields, duplicates, malformed hashes or symlinks. Verify/export only with explicit package directory; default SDK still requires dual-artifact v1/v2. Existing installed component backend reuses new generic verification without backend edit. Extend optional --native-only-component pilot requiring prebuilt+offline wheelhouse: repackage only verified SDK Rust/header snapshots through installed canonical wheel pack into py3-none-platform wheel without Python payload, append declared build dependency, include generated wheel in immutable wheelhouse snapshot (no overwrite), pin manifest via metadata. Preserve existing modes. Test malformed manifests, metadata ownership/snapshot, default SDK invariant, actual wheel install/export/C ABI and old-reader fail-closed; actual pinned NL isolated24conformance. Source producer remains outside this slice.",
+      "components": [
+        {
+          "name": "manifest-verification-export",
+          "paths": [
+            "src/sorust/__init__.py"
+          ]
+        },
+        {
+          "name": "native-component-pilot",
+          "paths": [
+            "tests/benchmark_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "regressions",
+          "paths": [
+            "tests/test_rust_components.py",
+            "tests/test_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "New explicitly versioned Rust-only manifest; legacy dual schemas/consumer provenance stay unchanged."
+      ],
+      "interfaceChanges": [
+        "Explicit-dir verify/export accepts sorust.rust-component/v1",
+        "Optional developer pilot --native-only-component"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; preserve legacy source/build modes and exact input/artifact receipts. Rust-only donors require feature-aware source/hash-pinned SDK; old readers reject the new schema."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_rust_components.py tests/test_nl_dsl_pilot.py"
+        ],
+        "evidence": "Strict native-only schema, no default SDK downgrade, dual-reader compatibility, actual data-only wheel metadata install/export/C ABI, guard/snapshot checks and old-reader refusal."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -I tests/benchmark_nl_dsl_pilot.py --native-only-component --prebuilt-rust --manifest-resources --build-wheelhouse WHEELHOUSE --number 10"
+        ],
+        "evidence": "Actual Python-free Rust wheel declared/installed in isolated consumer build without Rust on PATH;24original NL conformance and exact binary/header/provenance checks. Final SDK/sdist/component/native exports and indexed canonicalv21 pass pinned Docs check."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Required checks/independent frozen approval and merge, postmerge install/artifacts, owner release and preserved exact cleanup."
+      }
+    ]
+  }
+}
