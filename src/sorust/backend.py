@@ -44,7 +44,30 @@ def configuration(root: Path) -> dict:
         if (not full.is_file() or any(p.is_symlink() for p in [full, *full.parents])
                 or not full.resolve().is_relative_to(root.resolve())):
             raise ValueError(f"missing or unsafe source: {path}")
+    _build_script(root, config)
     return config
+
+
+def _build_script(root: Path, config: dict) -> Path | None:
+    crate = root / Path(config["rust-manifest"]).parent
+    package = tomllib.loads((crate / "Cargo.toml").read_text()).get("package", {})
+    if not isinstance(package, dict):
+        raise ValueError("Cargo package must be a table")
+    selected = package.get("build", True)
+    if selected is False:
+        return None
+    if selected is True:
+        path = crate / "build.rs"
+        if "build" not in package and not path.exists() and not path.is_symlink():
+            return None
+    elif isinstance(selected, str) and selected and not Path(selected).is_absolute():
+        path = crate / selected
+    else:
+        raise ValueError("Cargo build script must be a relative path or boolean")
+    if (not path.is_file() or any(p.is_symlink() for p in [path, *path.parents])
+            or not path.resolve().is_relative_to(root.resolve())):
+        raise ValueError("missing or unsafe Cargo build script")
+    return path.resolve()
 
 
 def _setup(wheel_staging: Path | None = None):
@@ -141,6 +164,9 @@ def _source_digest(root: Path, config: dict) -> str:
     crate = root / Path(config["rust-manifest"]).parent
     files += [crate / "Cargo.toml", crate / "Cargo.lock", *sorted((crate / "src").rglob("*.rs"))]
     files += sorted((root / "include").glob("*.h"))
+    script = _build_script(root, config)
+    if script is not None and script not in files:
+        files.append(script)
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.relative_to(root).as_posix().encode() + b"\0")

@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 15,
+  "version": 16,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "db0851e278fd35ff894a5069daf439489512130b",
+  "source_revision": "f1e93f11bfba382cd55fd268d908047c5089387d",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -72,7 +72,13 @@
     "receipt:sorust.prepared-counter-targeted.db0851e",
     "https://github.com/wellmanifest/sorust/pull/10",
     "receipt:sorust.prepared-counter-validation.db0851e",
-    "receipt:sorust.prepared-counter-performance.db0851e"
+    "receipt:sorust.prepared-counter-performance.db0851e",
+    "https://github.com/wellmanifest/sorust/blob/f1e93f11bfba382cd55fd268d908047c5089387d/src/sorust/backend.py",
+    "https://github.com/wellmanifest/sorust/blob/f1e93f11bfba382cd55fd268d908047c5089387d/tests/test_build.py",
+    "receipt:sorust.build-script-baseline.ea3b05b",
+    "https://doc.rust-lang.org/cargo/reference/manifest.html#the-build-field",
+    "receipt:sorust.build-script-targeted.f1e93f1",
+    "receipt:sorust.build-script-validation.f1e93f1"
   ]
 }
 ---
@@ -168,6 +174,10 @@ Porównanie publicznych API w jednym wheel-u, osobny minimalny venv na Linux x86
 | 4096 | 1719.98 | 46.366 | 37.1× |
 
 Cel ≥20× dla 64 B został osiągnięty (6384,7× w tym pomiarze). Porównywane API mają różny jawny moment audytu: public scalar ponawia sprawdzanie, prepared wykorzystuje wcześniej zweryfikowane wiązanie. To nie jest przyspieszenie tej samej polityki odczytu plików ani całego procesu `nl-*`. Mediana osobno mierzonego przygotowania po rozgrzaniu wyniosła 1,514 ms dla compiled-python i 1,238 ms dla Rust; zimnego ładowania nie mierzono. Rust dla 64 B dał 2,184 µs public i 2,143 µs prepared; nie deklaruje się nowego przyspieszenia dla Rust. Brak przypięcia CPU, małe powtarzane bufory i zmienność próbek ograniczają wniosek do tej lokalnej procedury. Receipt `receipt:sorust.prepared-counter-performance.db0851e` wiąże dokładny wheel, manifest, digest skryptu i wszystkie próbki. Pomiary wykonano po zakończeniu pełnego zestawu testów; próg nie jest bramą czasową CI.
+
+Korekta odcisku skryptu Cargo w źródle `f1e93f11bfba382cd55fd268d908047c5089387d`: na bazie `ea3b05b39810b0add6b8d21e3fbd486d9432b96d` dwie budowy zmieniające wyłącznie `build.rs` dały różne biblioteki Rust i wynik funkcji 49 → 50, ale identyczny `source_sha256` (`88ab6ec654dfd6103fcdebdaf4e273376490bedc301de9cfc0e46304cbfe65f3`). Receipt `receipt:sorust.build-script-baseline.ea3b05b` wiąże oba wheel-e, skrypty i wynik osobnych procesów. Sumy samych artefaktów działały poprawnie; brak dotyczył zestawu źródeł manifestu. Wersja 16 zachowuje historyczne ustalenia wersji 15 i uzupełnia kontrakt źródeł.
+
+Walidacja źródła: 17 testów celowanych PASS (211,26 s), pełny zestaw 121 testów pytest PASS (345,51 s) i 5 testów Cargo PASS. Testy domyślnego skryptu, jawnego `true`, własnej lokalizacji i ścieżki do współdzielonego pliku budują sdist → wheel dwukrotnie; zmiana wyłącznie skryptu zmienia odcisk, hash biblioteki i rzeczywisty wynik Rust. Osobne procesy ładują oddzielne pliki, bez zapisu do mapowanej biblioteki. Sprawdzane są obecność skryptu w sdist i sumy wszystkich artefaktów. Dalsze przypadki obejmują brak/wyłączenie skryptu, błędne typy, brak jawnego wejścia, katalog, ścieżki absolutne/wychodzące poza projekt i symlinki pliku/rodzica, z odmową przed utworzeniem `build`. Receipty: `receipt:sorust.build-script-targeted.f1e93f1`, `receipt:sorust.build-script-validation.f1e93f1`. Runtime, jądro, nagłówek i ABI zachowują bajty bazy; zmienił się backend budowania i testy.
 
 <!-- docs:section content -->
 ## Content
@@ -320,6 +330,14 @@ recursive-include crates *.toml *.lock *.rs
 recursive-include include *.h
 ```
 
+### Skrypt budowy Cargo i odcisk źródeł
+
+Backend uwzględnia skrypt wybrany przez `[package].build` w `Cargo.toml`: brak pola wykrywa istniejący `build.rs` w katalogu crate, `true` wymaga tego pliku, niepusty względny ciąg wskazuje własny skrypt, a `false` wyłącza wybór. Domyślny plik, własną ścieżkę i wyłączenie opisuje [dokumentacja Cargo](https://doc.rust-lang.org/cargo/reference/manifest.html#the-build-field); zachowanie jawnego `true` zweryfikowano lokalnie z Cargo 1.97.1.
+
+Wybrany skrypt musi być zwykłym plikiem wewnątrz projektu, bez symlinków w ścieżce. Sorust dopuszcza `../shared-build.rs`, jeżeli wynikowa ścieżka pozostaje w projekcie. Brak jawnie wskazanego pliku, ścieżka absolutna lub wychodząca poza projekt oraz niepoprawny typ powodują błąd konfiguracji przed Cython i Cargo. Ścieżkę po normalizacji oraz bajty wybranego skryptu dodaje się do `source_sha256` tylko wtedy, gdy pliku nie objęto już dotychczasowym zbiorem źródeł. Projekt bez skryptu zachowuje wcześniejszy odcisk; wyłączony `build.rs` w katalogu crate nie jest dodatkowym wejściem.
+
+Konsument MUSI umieścić skrypt w sdist, także przy własnej nazwie lub lokalizacji. Powyższe `recursive-include crates *.rs` obejmuje testowane skrypty `.rs` pod `crates/`; inne lokalizacje lub rozszerzenia wymagają odpowiedniego wpisu konsumenta. Odcisk nadal obejmuje określony zbiór: pyproject, źródła Python, manifest i lockfile crate, jego `src/**/*.rs`, nagłówki i wybrany skrypt. Nie śledzi dowolnych plików odczytywanych przez skrypt, środowiska ani pełnego grafu zależności Cargo; nie stanowi deklaracji hermetycznej budowy. Schemat manifestu i ABI pozostają w wersji 1.
+
 `python-modules` przyjmuje również kilka modułów, w tym zagnieżdżone, np. `["nl_component._legacy", "nl_component.nested._fast"]`. Wheel zawiera ich rozszerzenia i jedno jądro Rust. Usuwa się tylko źródła jawnie wybrane do kompilacji; niewybrane moduły pozostają zwykłym Pythonem. Pakiet zachowuje odpowiednie inicjalizatory lub właściwą strukturę namespace; jawnie wybrane `__init__.py` można również kompilować jak poniżej.
 
 ### Skompilowane inicjalizatory pakietów
@@ -369,4 +387,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Każda następna zmiana, w tym przygotowany licznik w ticket-011, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Przygotowany licznik scalono przez [PR11](https://github.com/wellmanifest/sorust/pull/11) jako `ea3b05b39810b0add6b8d21e3fbd486d9432b96d`, po niezależnym zatwierdzeniu HEAD `b57267857a6ecfc10566e1d55e95aeaed4425dcf`. Każda następna zmiana, w tym odcisk skryptu Cargo w ticket-012, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.

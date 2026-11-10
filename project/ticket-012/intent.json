@@ -1,0 +1,105 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-012",
+  "summary": "Include Cargo build scripts in source fingerprints",
+  "workstream": "integration",
+  "classification": {
+    "kind": "BUG",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-012/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/backend.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "ea3b05b39810b0add6b8d21e3fbd486d9432b96d",
+    "targetBranch": "main",
+    "outcome": "Include the selected Cargo package build script exactly once in source_sha256 and reject invalid script paths before compilation. Validate real source-distribution wheel builds and native results; publish through independent review and merge, release and preserve owned checkout.",
+    "nonGoals": [
+      "Change runtime APIs, ABI, kernel/header, dependencies, platforms or registry/deployment.",
+      "General Cargo workspace/dependency graph support, build-script dynamic I/O/environment provenance or sandboxing.",
+      "Protected policy changes or complete Docs adoption."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 35,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 0
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Private Cargo package.build resolver: absent means auto-discover default build.rs, true requires default script, false disables, nonempty relative string chooses a script. Require a regular nonsymlink file confined to project; permit parent-relative paths inside project. Validate during configuration and append to digest only if not already hashed. Keep existing digest unchanged without selected additional input.",
+      "components": [
+        {
+          "name": "build-input-fingerprint",
+          "paths": [
+            "src/sorust/backend.py"
+          ]
+        },
+        {
+          "name": "consumer-regression",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; preserve previous artifacts and ignored worktree data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k build_script"
+        ],
+        "evidence": "Default/custom/shared build-script-only changes alter source digest and actual native results through sdist->wheel; disabled/absent scripts preserve fingerprint; missing, malformed, escaping and linked script inputs rejected before compilation."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Full suites, final wheel/sdist, installed APIs and native export hashes pass; canonical standard v16 binds exact source and safe receipts, own document passes pinned Docs check."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Local and required remote gates; independent Validator exact-head approval and merge; verified local fast-forward, released lease and preserved exact-path worktree cleanup/audit."
+      }
+    ]
+  }
+}

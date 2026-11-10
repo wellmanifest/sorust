@@ -1066,6 +1066,140 @@ else:
 ''', former_source])
 
 
+@pytest.mark.parametrize("selection", ["default", "true", "custom", "shared"])
+def test_build_script_changes_source_and_native_result(built, tmp_path, selection):
+    _, wheel, _, _ = built
+    run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
+    project, _, _ = external_project(tmp_path)
+    crate = project / "crates/sorust-kernel"
+    relative = {"default": "build.rs", "true": "build.rs",
+                "custom": "support/prepare.rs", "shared": "../shared-build.rs"}[selection]
+    if selection != "default":
+        setting = "true" if selection == "true" else json.dumps(relative)
+        cargo = crate / "Cargo.toml"
+        cargo.write_text(cargo.read_text().replace("[package]\n", f"[package]\nbuild = {setting}\n", 1))
+    script = (crate / relative).resolve()
+    script.parent.mkdir(parents=True, exist_ok=True)
+    library = crate / "src/lib.rs"
+    library.write_text(library.read_text() + '''
+#[no_mangle]
+pub extern "C" fn sorust_build_marker_v1() -> u8 {
+    env!("SORUST_BUILD_MARKER").as_bytes()[0]
+}
+''')
+    observations = []
+    for marker in (1, 2):
+        script.write_text(f'fn main() {{ println!("cargo:rustc-env=SORUST_BUILD_MARKER={marker}"); }}\n')
+        output = tmp_path / f"dist-{marker}"
+        # Default frontend path builds the wheel from an extracted source distribution.
+        run([sys.executable, "-I", "-m", "build", "--no-isolation", "--outdir", output, project])
+        with tarfile.open(next(output.glob("*.tar.gz"))) as archive:
+            suffix = "/" + script.relative_to(project).as_posix()
+            member = next(item for item in archive.getmembers() if item.name.endswith(suffix))
+            assert archive.extractfile(member).read() == script.read_bytes()
+        with zipfile.ZipFile(next(output.glob("*.whl"))) as archive:
+            manifest = json.loads(archive.read("nl_atomic_example/sorust-artifacts.json"))
+            for item in manifest["artifacts"] + manifest["headers"]:
+                assert hashlib.sha256(archive.read("nl_atomic_example/" + item["path"])).hexdigest() == item["sha256"]
+            native = next(item for item in manifest["artifacts"] if item["kind"] == "rust-cdylib")
+            binary = output / Path(native["path"]).name
+            binary.write_bytes(archive.read("nl_atomic_example/" + native["path"]))
+        # A separate process avoids a loader cache or rewriting a mapped library.
+        actual = run([sys.executable, "-I", "-c", '''
+import ctypes, sys
+library = ctypes.CDLL(sys.argv[1])
+marker = library.sorust_build_marker_v1
+marker.argtypes = []
+marker.restype = ctypes.c_uint8
+print(marker())
+''', binary])
+        assert int(actual) == ord(str(marker))
+        observations.append((manifest["source_sha256"], native["sha256"]))
+    assert observations[0][0] != observations[1][0]
+    assert observations[0][1] != observations[1][1]
+
+
+@pytest.mark.parametrize("selection", ["absent", "false"])
+def test_build_script_unselected_file_does_not_affect_digest(tmp_path, selection):
+    from sorust.backend import _source_digest
+
+    project, _, _ = external_project(tmp_path)
+    crate = project / "crates/sorust-kernel"
+    if selection == "false":
+        cargo = crate / "Cargo.toml"
+        cargo.write_text(cargo.read_text().replace("[package]\n", "[package]\nbuild = false\n", 1))
+    config = configuration(project)
+    before = _source_digest(project, config)
+    if selection == "false":
+        (crate / "build.rs").write_text("this disabled script must not be parsed or hashed")
+    else:
+        (crate / "unselected.rs").write_text("not selected by Cargo")
+    assert _source_digest(project, configuration(project)) == before
+
+
+@pytest.mark.parametrize("invalid", [
+    "missing", "true-missing", "absolute", "escape", "symlink-inside",
+    "symlink-outside", "symlink-parent", "directory", "number", "list", "empty",
+])
+def test_build_script_rejected_before_build(tmp_path, invalid):
+    project = tmp_path / "project"
+    project.mkdir()
+    for name in ["pyproject.toml", "README.md", "VERSION", "MANIFEST.in"]:
+        shutil.copyfile(ROOT / name, project / name)
+    for name in ["src", "crates", "include"]:
+        shutil.copytree(ROOT / name, project / name,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.egg-info", "target"))
+    crate = project / "crates/sorust-kernel"
+    script = crate / "build.rs"
+    # Every reachable script would fail if Cargo executed it.
+    content = 'fn main() { panic!("unexpected script execution"); }\n'
+    setting = None
+    if invalid in {"absolute", "escape", "symlink-outside"}:
+        outside = tmp_path / "outside.rs"
+        outside.write_text(content)
+    if invalid == "missing":
+        setting = '"support/missing.rs"'
+    elif invalid == "true-missing":
+        setting = "true"
+    elif invalid == "absolute":
+        setting = json.dumps(str(outside))
+    elif invalid == "escape":
+        setting = '"../../../outside.rs"'
+    elif invalid.startswith("symlink-"):
+        if invalid == "symlink-outside":
+            script.symlink_to(outside)
+        else:
+            saved = crate / "saved"
+            saved.mkdir()
+            (saved / "build.rs").write_text(content)
+            if invalid == "symlink-inside":
+                script.symlink_to(saved / "build.rs")
+            else:
+                (crate / "linked").symlink_to(saved, target_is_directory=True)
+                setting = '"linked/build.rs"'
+    elif invalid == "directory":
+        script.mkdir()
+    else:
+        setting = {"number": "42", "list": "[]", "empty": '""'}[invalid]
+    if setting is not None:
+        cargo = crate / "Cargo.toml"
+        cargo.write_text(cargo.read_text().replace("[package]\n", f"[package]\nbuild = {setting}\n", 1))
+    with pytest.raises(ValueError, match="Cargo build script"):
+        configuration(project)
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    output = tmp_path / "dist"
+    result = subprocess.run(
+        [sys.executable, "-I", "-m", "build", "--sdist", "--no-isolation",
+         "--outdir", str(output), str(project)],
+        cwd=project, env=environment, text=True, capture_output=True, timeout=180)
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "Cargo build script" in result.stdout + result.stderr
+    assert "unexpected script execution" not in result.stdout + result.stderr
+    assert not (project / "build").exists()
+    assert not list(output.glob("*.tar.gz"))
+
+
 def test_consumer_wheel_rebuild_rejects_skip_build(built, tmp_path):
     _, wheel, _, _ = built
     run([sys.executable, "-I", "-m", "pip", "install", "--no-deps", "--force-reinstall", wheel])
