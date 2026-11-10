@@ -1,0 +1,113 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-015",
+  "summary": "Build consumers from pinned installed Rust components",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-015/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/backend.py",
+    "tests/benchmark_nl_dsl_pilot.py",
+    "tests/test_prebuilt_component.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "e78ce82c3100dfedf178cddaed0439ffbd38b687",
+    "targetBranch": "main",
+    "outcome": "Build Python consumers from a hash-pinned Rust component in an installed build dependency without Cargo/rustc or vendored Rust sources. Preserve Cargo mode, metadata/runtime schemas and native ABI; prove actual NL build with failing Rust tool stubs and shared bytes. Independently merge, release/preserve checkout.",
+    "nonGoals": [
+      "Change runtime algorithms/C ABI/dependencies/platform coverage; automatic dependency installation, import donor code, load Rust code during build or infer publisher authenticity.",
+      "Support resource-bearing donors, cross-platform/cross-Python dependency-wheel compatibility, arbitrary header mixing, process-wide deduplication or globally shared runtime loading.",
+      "Migrate consumers, claim production/build speedup, registry release/deploy or protected policy/Docs adoption changes."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 75,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 2
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Keep common python-modules/rust-library/artifact-package/abi-version with exactly one rust-manifest or rust-component descriptor. Descriptor pins installed distribution/version/dotted package/manifest SHA256; resolve through importlib.metadata without donor imports, require RECORD ownership, nonsymlink files, verified manifest/payloads, same platform/library/ABI and no donor resources. Snapshot selected Rust library and headers; prebuilt build never invokes Cargo/rustc, preserves original rustc provenance, rejects local include headers, records additive rust_component provenance and deterministic dependency bytes in source fingerprint. Consumer wheel stays self-contained with private copies, sdist contains consumer sources and pins rather than donor binaries. Source mode unchanged. Extend pinned NL pilot with --prebuilt-rust and build-only failing cargo/rustc stubs, retain separate rlib-client toolchain use outside consumer build.",
+      "components": [
+        {
+          "name": "installed-component-backend",
+          "paths": [
+            "src/sorust/backend.py"
+          ]
+        },
+        {
+          "name": "regressions-and-practical-reuse",
+          "paths": [
+            "tests/test_prebuilt_component.py",
+            "tests/benchmark_nl_dsl_pilot.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "Additive rust_component provenance for consumed distribution/version/package/manifest/source pins; all required payload verification stays in existing v1/v2 manifest rules."
+      ],
+      "interfaceChanges": [
+        "Mutually exclusive tool.sorust.rust-component descriptor",
+        "Informational rust_component provenance/source-fingerprint dependency inputs"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; source mode remains supported. New-mode consumers require a source/hash-pinned feature-aware backend. Preserve old dist, input/provenance/test receipts and all ignored checkout data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_prebuilt_component.py"
+        ],
+        "evidence": "Reject wrong configuration, missing distribution/version/hash/ownership/platform/library/resources/unsafe payload before compilers; no donor imports, pinned snapshots/fingerprint behavior, actual source-only sdist->wheel without crates/include and failing Cargo/rustc stubs; installed/exported runtime and binary/header identity."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation",
+          "python -I tests/benchmark_nl_dsl_pilot.py --consumer-root CONSUMER_CHECKOUT --prebuilt-rust --manifest-resources --sorust-wheel WHEEL --rust-rlib RLIB --output .subactor/cache/prebuilt-pilot --number 10"
+        ],
+        "evidence": "Full suites and final artifact/install/export/hash checks; actual pinned NL three-mode parity/24 original conformance executions, identical donor Rust/header bytes, no Rust invocations during consumer sdist/wheel build; no new performance claim. Canonicalv19 exact source/receipts and own pinned Docs check."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Local/required remote checks, frozen protected approval/merge, verified primary installation, owner CAS release and preserved exact checkout cleanup/audit."
+      }
+    ]
+  }
+}
