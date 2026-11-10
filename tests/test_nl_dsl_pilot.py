@@ -259,3 +259,36 @@ def test_c_build_path_rejects_rust_selected_as_c_compiler(tmp_path):
     rust.chmod(0o755)
     with pytest.raises(ValueError, match="must not select"):
         pilot.c_build_path(tmp_path, dict(os.environ, CC=str(rust)))
+
+
+def test_wheelhouse_includes_generated_component_snapshot(tmp_path, wheel_inputs):
+    source, sdk, _ = wheel_inputs
+    extra = tmp_path / "component-1.0-py3-none-linux_x86_64.whl"
+    extra.write_bytes(b"generated native wheel")
+    target = tmp_path / "snapshot"
+    inventory = pilot.snapshot_wheelhouse(source, target, sdk, [extra])
+    assert inventory[-1] == {"file": extra.name, "sha256": pilot.digest(extra.read_bytes())}
+    extra.write_bytes(b"changed later")
+    assert (target / extra.name).read_bytes() == b"generated native wheel"
+
+
+@pytest.mark.parametrize("case", ["missing", "linked", "collision"])
+def test_generated_component_cannot_replace_or_escape_inputs(tmp_path, wheel_inputs, case):
+    source, sdk, dependency = wheel_inputs
+    extra = tmp_path / "extra.whl"
+    if case == "linked":
+        extra.symlink_to(dependency)
+    elif case == "collision":
+        extra = dependency
+    with pytest.raises(ValueError, match="must not replace"):
+        pilot.snapshot_wheelhouse(source, tmp_path / "snapshot", sdk, [extra])
+    assert not (tmp_path / "snapshot").exists()
+    assert (source / sdk.name).read_bytes() == sdk.read_bytes()
+
+
+@pytest.mark.parametrize("prebuilt", [False, True])
+def test_native_component_pilot_requires_isolated_prebuilt_mode(monkeypatch, prebuilt):
+    from argparse import Namespace
+    monkeypatch.setattr(pilot, "snapshot", lambda *a: pytest.fail("inputs must not be read"))
+    with pytest.raises(ValueError, match="native-only-component requires"):
+        pilot.pilot(Namespace(build_wheelhouse=None, prebuilt_rust=prebuilt, native_only_component=True))

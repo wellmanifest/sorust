@@ -7,6 +7,7 @@ import importlib
 import importlib.machinery
 import importlib.util
 import json
+import re
 import sys
 from collections.abc import Callable, Generator, Iterable
 from functools import lru_cache
@@ -39,7 +40,7 @@ def _resource_path(value: str) -> Path:
 
 
 def _resource_entries(manifest: dict) -> list:
-    if manifest["schema"] == "sorust.artifacts/v1":
+    if manifest["schema"] in {"sorust.artifacts/v1", "sorust.rust-component/v1"}:
         if "resources" in manifest:
             raise ValueError("declared resources require manifest v2")
         return []
@@ -57,18 +58,56 @@ def _resource_entries(manifest: dict) -> list:
     return resources
 
 
+def _rust_component_manifest(manifest: dict) -> None:
+    fields = {"schema", "abi_version", "package", "platform", "rustc", "source_sha256", "headers", "artifacts"}
+    if (set(manifest) != fields or type(manifest["abi_version"]) is not int
+            or not isinstance(manifest["package"], str)
+            or not re.fullmatch(r"[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*", manifest["package"])
+            or any(not isinstance(manifest[key], str) or not manifest[key].strip() for key in ["platform", "rustc"])
+            or not isinstance(manifest["source_sha256"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", manifest["source_sha256"])):
+        raise ValueError("Rust component requires exact identity, ABI and source/compiler fields")
+    artifacts, headers = manifest["artifacts"], manifest["headers"]
+    if (not isinstance(artifacts, list) or len(artifacts) != 1 or not isinstance(headers, list)
+            or not isinstance(artifacts[0], dict) or artifacts[0].get("kind") != "rust-cdylib"):
+        raise ValueError("Rust component requires exactly one Rust library and a headers list")
+    entries = [(artifacts[0], {"kind", "path", "sha256"}, {".so", ".dylib", ".dll"})]
+    entries += [(item, {"path", "sha256"}, {".h"}) for item in headers]
+    occupied = set()
+    for item, keys, suffixes in entries:
+        if (not isinstance(item, dict) or set(item) != keys or not isinstance(item["path"], str)
+                or any(c in item["path"] for c in "\\:") or any(ord(c) < 32 for c in item["path"])
+                or not isinstance(item["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", item["sha256"])):
+            raise ValueError("invalid Rust component payload entry")
+        relative = PurePosixPath(item["path"])
+        if (len(relative.parts) != 2 or relative.parts[0] != "_native"
+                or relative.as_posix() != item["path"] or relative.suffix not in suffixes
+                or relative in occupied):
+            raise ValueError("Rust component requires unique canonical direct _native library/header paths")
+        occupied.add(relative)
+
+
 def verify_artifacts(package_dir: str | Path | None = None) -> dict:
     """Verify packaged bytes; hashes detect drift, not publisher authenticity."""
     root = Path(package_dir) if package_dir is not None else Path(__file__).parent
     try:
         manifest = json.loads((root / "sorust-artifacts.json").read_text())
-        if manifest["schema"] not in {"sorust.artifacts/v1", "sorust.artifacts/v2"} or manifest["abi_version"] != 1:
+        native = manifest["schema"] == "sorust.rust-component/v1"
+        if manifest["schema"] not in {"sorust.artifacts/v1", "sorust.artifacts/v2", "sorust.rust-component/v1"} or manifest["abi_version"] != 1:
             raise ValueError("unsupported manifest or ABI")
         artifacts = manifest["artifacts"]
-        kinds = [item["kind"] for item in artifacts]
-        if (kinds.count("rust-cdylib") != 1 or "python-extension" not in kinds
-                or set(kinds) != {"rust-cdylib", "python-extension"}):
-            raise ValueError("both native artifact kinds are required")
+        if native:
+            if package_dir is None:
+                raise ValueError("default Sorust SDK requires a dual-artifact manifest")
+            _rust_component_manifest(manifest)
+            metadata = (root / "sorust-artifacts.json").absolute()
+            if not metadata.is_file() or any(p.is_symlink() for p in [metadata, *metadata.parents]):
+                raise ValueError("Rust component metadata must be a regular unlinked file")
+        else:
+            kinds = [item["kind"] for item in artifacts]
+            if (kinds.count("rust-cdylib") != 1 or "python-extension" not in kinds
+                    or set(kinds) != {"rust-cdylib", "python-extension"}):
+                raise ValueError("both native artifact kinds are required")
         resources = _resource_entries(manifest)
         resource_paths = {Path(item["path"]) for item in resources}
         for item in artifacts + manifest.get("headers", []) + resources:
@@ -78,6 +117,8 @@ def verify_artifacts(package_dir: str | Path | None = None) -> dict:
             path = root / relative
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
                 raise ValueError("artifact escapes package")
+            if native and (not path.is_file() or any(p.is_symlink() for p in path.absolute().parents)):
+                raise ValueError("Rust component payload must be a regular unlinked file")
             if relative in resource_paths and any(p.is_symlink() for p in path.parents):
                 raise ValueError("resource path contains a symlink")
             if hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
@@ -94,7 +135,7 @@ def export_artifacts(destination: str | Path, *, package_dir: str | Path | None 
     A failed copy can leave an incomplete output; no compiler or loader runs.
     """
     root = Path(package_dir) if package_dir is not None else Path(__file__).parent
-    manifest = verify_artifacts(root)
+    manifest = verify_artifacts(package_dir)
     payload = {}
     for item in manifest["artifacts"] + manifest.get("headers", []) + manifest.get("resources", []):
         relative = Path(item["path"])
