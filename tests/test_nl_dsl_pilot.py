@@ -98,7 +98,7 @@ def test_wheel_binds_reused_native_artifacts(tmp_path, mismatch):
     if mismatch == "manifest":
         supplied["artifacts"][0]["sha256"] = pilot.digest(b"other")
     with zipfile.ZipFile(wheel, "w") as archive:
-        for name in ["__init__.py", "backend.py"]:
+        for name in ["__init__.py", "backend.py", "rust_backend.py"]:
             archive.writestr("sorust/" + name, (pilot.ROOT / "src/sorust" / name).read_bytes())
         archive.writestr("sorust/sorust-artifacts.json", json.dumps(supplied))
         archive.writestr("sorust/_native/kernel.so", b"other")
@@ -292,3 +292,88 @@ def test_native_component_pilot_requires_isolated_prebuilt_mode(monkeypatch, pre
     monkeypatch.setattr(pilot, "snapshot", lambda *a: pytest.fail("inputs must not be read"))
     with pytest.raises(ValueError, match="native-only-component requires"):
         pilot.pilot(Namespace(build_wheelhouse=None, prebuilt_rust=prebuilt, native_only_component=True))
+
+
+def test_wheel_rejects_stale_source_backend_before_artifact_use(tmp_path):
+    wheel = tmp_path / "stale.whl"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        for name in ["__init__.py", "backend.py"]:
+            archive.writestr("sorust/" + name, (pilot.ROOT / "src/sorust" / name).read_bytes())
+        archive.writestr("sorust/rust_backend.py", b"stale native source backend")
+    with pytest.raises(ValueError, match="match this checkout"):
+        pilot.check_wheel(wheel, pilot.ROOT, {})
+
+
+@pytest.mark.parametrize("prebuilt,wheelhouse", [(False, None), (True, None)])
+def test_source_component_requires_isolated_prebuilt_before_inputs(monkeypatch, prebuilt, wheelhouse):
+    from argparse import Namespace
+    monkeypatch.setattr(pilot, "snapshot", lambda *a: pytest.fail("inputs must not be read"))
+    with pytest.raises(ValueError, match="source-rust-component requires"):
+        pilot.pilot(Namespace(build_wheelhouse=wheelhouse, prebuilt_rust=prebuilt,
+                              source_rust_component=True))
+
+
+def test_component_producer_modes_are_exclusive_before_inputs(monkeypatch, tmp_path):
+    from argparse import Namespace
+    monkeypatch.setattr(pilot, "snapshot", lambda *a: pytest.fail("inputs must not be read"))
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        pilot.pilot(Namespace(build_wheelhouse=tmp_path, prebuilt_rust=True,
+                              source_rust_component=True, native_only_component=True))
+
+
+@pytest.mark.parametrize("name", ["cython-3.3.1-py3-none-any.whl", "Cython-3.3.1-py3-none-any.whl"])
+def test_producer_snapshot_excludes_cython_without_changing_consumer_inputs(tmp_path, wheel_inputs, name):
+    source, sdk, _ = wheel_inputs
+    cython = source / name
+    cython.write_bytes(b"consumer build dependency")
+    producer, consumer = tmp_path / "producer", tmp_path / "consumer"
+    inventory = pilot.snapshot_wheelhouse(source, producer, sdk, exclude_cython=True)
+    assert not (producer / name).exists()
+    assert {x["file"] for x in inventory} == {x.name for x in source.iterdir()} - {name}
+    pilot.snapshot_wheelhouse(source, consumer, sdk)
+    assert (consumer / name).read_bytes() == cython.read_bytes()
+    assert (producer / sdk.name).read_bytes() == sdk.read_bytes()
+
+
+def test_cython_exclusion_never_bypasses_input_safety(tmp_path, wheel_inputs):
+    source, sdk, _ = wheel_inputs
+    (source / "cython-3.3.1-py3-none-any.whl").symlink_to(sdk)
+    with pytest.raises(ValueError, match="regular wheel"):
+        pilot.snapshot_wheelhouse(source, tmp_path / "producer", sdk, exclude_cython=True)
+    assert not (tmp_path / "producer").exists()
+
+
+def test_source_producer_uses_committed_kernel_and_plain_sdk_dependency(committed_source, tmp_path, monkeypatch):
+    repo, _, _ = committed_source
+    expected = {}
+    for name in pilot.KERNEL_FILES:
+        target = repo / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        expected[name] = ("committed " + name + "\n").encode()
+        target.write_bytes(expected[name])
+    (repo / "pyproject.toml").write_text('[project]\nversion = "0.1.0"\n')
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.name=Pilot Test", "-c", "user.email=pilot@example.invalid",
+                    "commit", "-qm", "kernel fixture"], cwd=repo, check=True)
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
+    for name in pilot.KERNEL_FILES:
+        (repo / name).write_bytes(b"dirty unaccepted kernel")
+    monkeypatch.setattr(pilot, "ROOT", repo)
+    run = tmp_path / "run"
+    run.mkdir()
+    def before_build(stage, wheelhouse, sdk, environment, **policy):
+        assert policy == {"rust_tools": True, "exclude_cython": True}
+        project = stage / "project"
+        assert {name: (project / name).read_bytes() for name in expected} == expected
+        import tomllib
+        config = tomllib.loads((project / "pyproject.toml").read_text())
+        assert config["build-system"]["build-backend"] == "sorust.rust_backend"
+        assert "sorust==0.1.0" in config["build-system"]["requires"]
+        assert all("cython" not in x.casefold() and "[build]" not in x
+                   for x in config["build-system"]["requires"])
+        assert not list(project.rglob("*.py"))
+        raise RuntimeError("source snapshot verified before build")
+    monkeypatch.setattr(pilot, "isolated_frontend", before_build)
+    with pytest.raises(RuntimeError, match="source snapshot verified"):
+        pilot.source_component_wheel(run, revision, tmp_path / "sdk.whl", tmp_path / "wheelhouse")
+    assert all((repo / name).read_bytes() == b"dirty unaccepted kernel" for name in expected)
