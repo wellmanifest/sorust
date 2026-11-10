@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 17,
+  "version": 18,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "9cd707bff4ab5c71d2e53f35eefd807467d6822f",
+  "source_revision": "7a2ce11ad410b0428acb04154c1fdc0668f518b4",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -85,7 +85,12 @@
     "receipt:sorust.nl-dsl-build-baseline.16e802b",
     "receipt:sorust.nl-pilot-targeted.9cd707b",
     "receipt:sorust.nl-pilot-validation.9cd707b",
-    "receipt:sorust.nl-pilot-practical.9cd707b"
+    "receipt:sorust.nl-pilot-practical.9cd707b",
+    "https://github.com/wellmanifest/sorust/blob/7a2ce11ad410b0428acb04154c1fdc0668f518b4/src/sorust/backend.py",
+    "https://github.com/wellmanifest/sorust/blob/7a2ce11ad410b0428acb04154c1fdc0668f518b4/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/7a2ce11ad410b0428acb04154c1fdc0668f518b4/tests/test_resources.py",
+    "receipt:sorust.resource-baseline.55bb710",
+    "receipt:sorust.resources-targeted.7a2ce11"
   ]
 }
 ---
@@ -203,6 +208,10 @@ Pomiary pilota na Linux x86_64 / CPython 3.13.12: mediana siedmiu rozgrzanych se
 Ilorazy median source/wheel wynoszą odpowiednio 1,072×, 1,056× i 1,063×. Rozrzut jest duży: parser source 3071,70–5189,93 µs, wheel 1059,05–4900,61 µs; ten sam kod `.so` daje również różne wyniki wheel/export. Ten pomiar nie ustala wiarygodnej przewagi czasowej 6–7% ani przewagi eksportu. Potwierdza pakowanie i zgodność konkretnego modułu; zysku w produkcji nie zmierzono. W profilu 15000 wywołań parsera wystąpiło 471000 `re.search` i 465000 `re.escape`; samo przeniesienie otaczającego kodu do Cython nie usuwa tej pracy.
 
 Dla tego samego zgodnego podzbioru krótkich wejść, w procesie wheel-a, Rust batch z UTF-8 i przygotowaniem buforów miał medianę 13,85 µs, a Python `split()` 3,33 µs — około 4,16× krócej po stronie Python. W pozostałych dwóch procesach narzut Rust wyniósł około 3,10× i 4,07×. To pomiar granicy wywołania na małych danych, nie samej pętli Rust ani długich buforów. Cztery próby separatorów Unicode dały Python=2 i Rust=1, z zachowaniem argumentu `status=OPEN` przez oryginalny parser. Pilot nie zmienia algorytmu konsumenta ani nie podstawia niezgodnej semantyki.
+
+Zasoby paczki w źródle `7a2ce11ad410b0428acb04154c1fdc0668f518b4`: na bazie `55bb710930d9d83d31c9dd5d9a221872c813af08` kopia rzeczywistego wheel-a NL przyjmowała zmianę wyłącznie whitespace w `semantic-profile.json` bez błędu `verify_artifacts`, a eksport pomijał ten plik. To granica dotychczasowego formatu v1, który nie deklarował zasobów, bez obejścia hashowania binarek. Receipt `receipt:sorust.resource-baseline.55bb710` wiąże hashe przed/po i obserwacje. Wersja 18 dodaje jawne zasoby i format manifestu v2; historyczne pomiary oraz manualny tryb pilota z wersji 17 pozostają zapisane.
+
+43 testy celowane PASS (74,18 s) i 5 testów Cargo PASS. Test dwukrotnie buduje sdist → wheel z czterema skompilowanymi modułami, bez deklaracji package-data i z `include-package-data=false`: JSON w katalogu głównym i binarny plik danych w podpakiecie trafiają do sdist, wheel-a i eksportu. Zmiana samego JSON-a zmienia odcisk źródeł i wynik skompilowanej funkcji. Eksport działa w nowym venv bez Sorust/Cython. Pozostałe przypadki obejmują niepoprawne/niekanoniczne/reservowane ścieżki, brak pliku, symlinki pliku i rodzica, kolizje manifestu, checksum drift oraz ponowną kontrolę snapshotu przed utworzeniem wyjścia. Receipt: `receipt:sorust.resources-targeted.7a2ce11`.
 
 <!-- docs:section content -->
 ## Content
@@ -361,9 +370,32 @@ Backend uwzględnia skrypt wybrany przez `[package].build` w `Cargo.toml`: brak 
 
 Wybrany skrypt musi być zwykłym plikiem wewnątrz projektu, bez symlinków w ścieżce. Sorust dopuszcza `../shared-build.rs`, jeżeli wynikowa ścieżka pozostaje w projekcie. Brak jawnie wskazanego pliku, ścieżka absolutna lub wychodząca poza projekt oraz niepoprawny typ powodują błąd konfiguracji przed Cython i Cargo. Ścieżkę po normalizacji oraz bajty wybranego skryptu dodaje się do `source_sha256` tylko wtedy, gdy pliku nie objęto już dotychczasowym zbiorem źródeł. Projekt bez skryptu zachowuje wcześniejszy odcisk; wyłączony `build.rs` w katalogu crate nie jest dodatkowym wejściem.
 
-Konsument MUSI umieścić skrypt w sdist, także przy własnej nazwie lub lokalizacji. Powyższe `recursive-include crates *.rs` obejmuje testowane skrypty `.rs` pod `crates/`; inne lokalizacje lub rozszerzenia wymagają odpowiedniego wpisu konsumenta. Odcisk nadal obejmuje określony zbiór: pyproject, źródła Python, manifest i lockfile crate, jego `src/**/*.rs`, nagłówki i wybrany skrypt. Nie śledzi dowolnych plików odczytywanych przez skrypt, środowiska ani pełnego grafu zależności Cargo; nie stanowi deklaracji hermetycznej budowy. Schemat manifestu i ABI pozostają w wersji 1.
+Konsument MUSI umieścić skrypt w sdist, także przy własnej nazwie lub lokalizacji. Powyższe `recursive-include crates *.rs` obejmuje testowane skrypty `.rs` pod `crates/`; inne lokalizacje lub rozszerzenia wymagają odpowiedniego wpisu konsumenta. Odcisk nadal obejmuje określony zbiór: pyproject, źródła Python, manifest i lockfile crate, jego `src/**/*.rs`, nagłówki, wybrany skrypt i jawnie zadeklarowane zasoby. Nie śledzi dowolnych plików odczytywanych przez skrypt, środowiska ani pełnego grafu zależności Cargo; nie stanowi deklaracji hermetycznej budowy. Schemat manifestu i ABI pozostają w wersji 1.
 
 `python-modules` przyjmuje również kilka modułów, w tym zagnieżdżone, np. `["nl_component._legacy", "nl_component.nested._fast"]`. Wheel zawiera ich rozszerzenia i jedno jądro Rust. Usuwa się tylko źródła jawnie wybrane do kompilacji; niewybrane moduły pozostają zwykłym Pythonem. Pakiet zachowuje odpowiednie inicjalizatory lub właściwą strukturę namespace; jawnie wybrane `__init__.py` można również kompilować jak poniżej.
+
+### Jawne zasoby danych i manifest v2
+
+Konsument może dodać opcjonalne pole do swojej istniejącej tabeli `[tool.sorust]`:
+
+```toml
+resources = ["semantic-profile.json", "nested/vocabulary.bin"]
+```
+
+Ścieżki odnoszą się do `src/<artifact-package>/`, np. `src/standard/semantic-profile.json`. To jawne pliki, bez rozwijania globów ani automatycznego odkrywania pozostałej zawartości paczki. Mogą zawierać Unicode. Wymagane są unikalne, kanoniczne względne ścieżki POSIX do zwykłych plików, bez `..`, aliasów `./`/podwójnych separatorów, backslash, dwukropka, znaków kontrolnych i symlinków w ścieżce. Katalog `_native`, korzeń `sorust-artifacts.json` i jego podścieżki oraz typowe rozszerzenia kodu Python/binarek są zastrzeżone. Błąd wejścia zatrzymuje konfigurację przed Cython/Cargo.
+
+Backend dołącza zasoby do listy źródeł sdist przez istniejący hook `build_ext.get_source_files` i jawnie kopiuje je do świeżego wheel-a. Nie trzeba dodawać dla nich `package-data`; test obejmuje także `include-package-data=false`. Celowe reguły wykluczania w własnym `MANIFEST.in` nie są nadpisywane. Wheel budowany ze sdist musi otrzymać wszystkie zadeklarowane wejścia; konfiguracja odrzuca brakujący plik. Nazwy projektowe i bajty zasobów są również częścią `source_sha256`.
+
+| Paczka | Emitowany format | Odczyt przez bieżący runtime |
+| --- | --- | --- |
+| Brak `resources` lub pusta lista | `sorust.artifacts/v1`, bez pola zasobów | Dotychczasowy audyt i eksport binarek/nagłówków |
+| Co najmniej jeden zadeklarowany zasób | `sorust.artifacts/v2`, lista `resources` | Audyt i eksport binarek, nagłówków oraz zadeklarowanych danych |
+
+W v2 wymagane jest pole `resources` typu lista wpisów zawierających dokładnie `path` i `sha256`; ręcznie tworzony v2 może mieć listę pustą. ABI C pozostaje 1, a wymagania obu rodzajów artefaktów natywnych pozostają takie same. Bieżący czytnik obsługuje v1 i v2, odrzuca deklarację zasobów pod etykietą v1 oraz konflikty zasobów z innymi wpisami. Starszy czytnik Sorust znający tylko v1 odrzuca v2, dzięki czemu nie akceptuje częściowego audytu ani eksportu pomijającego zadeklarowane dane. W lokalnym, jeszcze niewydanym 0.1 wybiera się właściwy resource-aware wheel przez zatwierdzoną rewizję i hash; sama nazwa pliku wersji deweloperskiej nie potwierdza obsługi v2.
+
+`verify_artifacts` sprawdza obecność, ścieżki i sumy zadeklarowanych zasobów. `export_artifacts` zachowuje podpis API, ponownie hashuje odczytane bajty snapshotu przed utworzeniem celu, kopiuje także dane i zapisuje manifest na końcu. Brak zasobu, zmiana sumy, symlink lub konflikt powodują odmowę. Dotychczasowe zasady nowego katalogu i braku atomowości całej operacji pozostają w mocy. Nie eksportuje się niezadeklarowanych plików. Sumy wykrywają drift, nie uwierzytelniają wydawcy; zwykły import samodzielnego `.so` nie uruchamia automatycznie audytora.
+
+Pilot NL ma nowy opcjonalny przełącznik `--manifest-resources`. Ten tryb deklaruje oryginalny `semantic-profile.json`, wymaga formatu v2 i poprawnego importu bez ręcznego kopiowania pliku, kontrolowanie zmienia wyłącznie JSON w eksporcie, sprawdza odmowę audytu i przywraca zatwierdzone bajty. Następnie wykonuje oryginalne testy i porównanie trzech trybów. Do krótkiej kontroli funkcjonalnej można użyć `--number 10`; nie stanowi ona nowego pomiaru przyspieszenia. Bez przełącznika pozostaje historyczny tryb v1 z manualnym sidecarem.
 
 ### Powtarzalny pilot na module NL DSL
 
@@ -383,7 +415,7 @@ Zmienne wskazują odpowiednio lokalny checkout NL oraz istniejące pliki wheel i
 
 Pilot kompiluje oryginalny inicjalizator `standard` oraz moduł NL. Sprawdza trzy osobne procesy w minimalnym venv: oryginalny Python, zainstalowany wheel z rozszerzeniami oraz samodzielnie eksportowany pakiet. Venv nie zawiera Sorust ani Cython, a PATH workerów nie udostępnia kompilatorów. Wybrane testy zgodności pochodzą z tego samego przypiętego commitu i muszą być niepuste, bez argumentów/fixtures; żadnego nie pomija się milcząco. Porównuje się dane parsera, tekst kanoniczny i wyniki mostka z pominięciem losowego trace ID oraz czasu odpowiedzi. To sprawdzenie konkretnego modułu i korpusu, nie pełnej aplikacji gRPC/LLM ani ruchu produkcyjnego.
 
-Eksport Sorust przenosi wyłącznie artefakty i nagłówki manifestu. Moduł NL potrzebuje również `semantic-profile.json`. Pilot najpierw wymaga rzeczywistego błędu importu bez tego zasobu, następnie dostarcza go jawnie jako plik danych konsumenta i sprawdza jego hash względem przypiętego wejścia przed pomiarem. Ten sidecar nie staje się automatycznie zasobem weryfikowanym przez `verify_artifacts`; jego pakowanie i integralność pozostają odpowiedzialnością konsumenta.
+W domyślnym trybie v1 tego pilota eksport przenosi artefakty i nagłówki manifestu. Moduł NL potrzebuje również `semantic-profile.json`. Pilot najpierw wymaga rzeczywistego błędu importu bez tego zasobu, następnie dostarcza go jawnie jako plik danych konsumenta i sprawdza jego hash względem przypiętego wejścia przed pomiarem. Ten sidecar nie staje się automatycznie zasobem weryfikowanym przez `verify_artifacts`; jego pakowanie i integralność pozostają odpowiedzialnością konsumenta.
 
 Wszystkie trzy tryby używają tej samej wyeksportowanej biblioteki Rust z wcześniejszego wheel-a Sorust, przez ABI C v1. Oddzielny klient Rust linkuje istniejące `.rlib` bez ponownej kompilacji jądra, z dokładnie zgodnym toolchainem i `panic=abort`. Raport wiąże hashe obu wejściowych binarek i wynik klienta. Budowa próbnego wheel-a nadal korzysta z niezmienionych plików crate Sorust w prywatnej nakładce; nie oznacza to usunięcia Cargo z procesu budowania nowych wheel-i.
 
@@ -438,4 +470,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Przygotowany licznik scalono przez [PR11](https://github.com/wellmanifest/sorust/pull/11) jako `ea3b05b39810b0add6b8d21e3fbd486d9432b96d`, po niezależnym zatwierdzeniu HEAD `b57267857a6ecfc10566e1d55e95aeaed4425dcf`. Odcisk skryptu Cargo scalono przez [PR12](https://github.com/wellmanifest/sorust/pull/12) jako `16e802b5d16fba5372fc4333a4ed05a6a9bb8e7f`, po niezależnym zatwierdzeniu HEAD `85892adc316c02803fbf4f6f6f892f583452a7d1`. Każda następna zmiana, w tym pilot w ticket-013, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Przygotowany licznik scalono przez [PR11](https://github.com/wellmanifest/sorust/pull/11) jako `ea3b05b39810b0add6b8d21e3fbd486d9432b96d`, po niezależnym zatwierdzeniu HEAD `b57267857a6ecfc10566e1d55e95aeaed4425dcf`. Odcisk skryptu Cargo scalono przez [PR12](https://github.com/wellmanifest/sorust/pull/12) jako `16e802b5d16fba5372fc4333a4ed05a6a9bb8e7f`, po niezależnym zatwierdzeniu HEAD `85892adc316c02803fbf4f6f6f892f583452a7d1`. Pilot scalono przez [PR13](https://github.com/wellmanifest/sorust/pull/13) jako `55bb710930d9d83d31c9dd5d9a221872c813af08`, po niezależnym zatwierdzeniu HEAD `c94eed2635e8e3c7509aa98221f68569702dc19d`. Każda następna zmiana, w tym zasoby w ticket-014, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
