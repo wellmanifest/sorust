@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 12,
+  "version": 13,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "2d5f63baeb62394a4460894e649b6a80b548d9b7",
+  "source_revision": "eefdb1cae1f8aa30343f416f2e78653db879e8f8",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -55,7 +55,11 @@
     "https://github.com/wellmanifest/sorust/blob/2d5f63baeb62394a4460894e649b6a80b548d9b7/src/sorust/backend.py",
     "https://github.com/wellmanifest/sorust/blob/2d5f63baeb62394a4460894e649b6a80b548d9b7/tests/test_build.py",
     "receipt:sorust.rebuild-baseline.b102941",
-    "receipt:sorust.rebuild-validation.2d5f63b"
+    "receipt:sorust.rebuild-validation.2d5f63b",
+    "https://github.com/wellmanifest/sorust/blob/eefdb1cae1f8aa30343f416f2e78653db879e8f8/src/sorust/backend.py",
+    "https://github.com/wellmanifest/sorust/blob/eefdb1cae1f8aa30343f416f2e78653db879e8f8/tests/test_build.py",
+    "receipt:sorust.rebuild-skip-build.124c1b4",
+    "receipt:sorust.rebuild-validation.eefdb1c"
   ]
 }
 ---
@@ -125,6 +129,10 @@ Korekta ponownego budowania w źródle `2d5f63baeb62394a4460894e649b6a80b548d9b7
 Backend tworzy teraz własny tymczasowy katalog dla każdego hooka `build_wheel`. Polecenia setuptools `build` i `bdist_wheel` kierują do niego odpowiednio `build_lib` i katalog instalacji wheel-a. Dzięki temu stare wyniki kompilacji oraz pliki pozostawione po przerwanym pakowaniu nie stają się zawartością nowej paczki. Katalog jest usuwany po wyjściu z hooka, również przy wyjątku. Cache kompilatorów Cython/Cargo i wcześniejsze katalogi build pozostają do ponownego użycia; nie wykonuje się ich czyszczenia. Hooki metadanych i sdist, runtime, Rust i ABI nie zmieniły się. Wersja 12 uzupełnia ustalenia wersji 11.
 
 Walidacja korekty: pełne 92 testy pytest PASS (153,64 s) i 5 testów Cargo PASS. Dwa przypadki regresji budują dwukrotnie w tym samym drzewie konsumenta, zmieniają wybór modułu do kompilacji, a poprzednio kompilowany moduł odpowiednio zmieniają lub usuwają. Każdy przypadek dodatkowo zasiewa zawartość poprzedniego wheel-a w konwencjonalnym katalogu pakowania, odwzorowując przerwany starszy build. Sprawdzono brak starych rozszerzeń/źródeł, sumy bieżącego manifestu i rzeczywiste zachowanie po instalacji drugiego wheel-a. Zachowano testy pojedynczych/zagnieżdżonych modułów, sdist, eksportu i API scalar/many/stream. Receipt: `receipt:sorust.rebuild-validation.2d5f63b`.
+
+Uzupełnienie w źródle `eefdb1cae1f8aa30343f416f2e78653db879e8f8`: kontrolowany hook wheel-a z opcją setuptools `--skip-build` na HEAD `124c1b4dc7e954eebf3b860ef57dd263f89db3d3` zakończył się kodem 0, tworząc archiwum zawierające wyłącznie cztery pliki dist-info, bez modułów i manifestu. Receipt: `receipt:sorust.rebuild-skip-build.124c1b4`. Świeży staging wymaga wykonania budowy; backend odrzuca teraz tę opcję jawnym `ValueError` przed pakowaniem. Wersja 13 zachowuje ustalenia wersji 12 i dodaje tę granicę kontraktu hooka; publiczne API runtime i ABI pozostają zgodne.
+
+Końcowa walidacja źródła `eefdb1cae1f8aa30343f416f2e78653db879e8f8`: 93 testy pytest PASS (86,51 s), w tym oba przypadki przebudowy ze starą zawartością i rzeczywisty hook odrzucający `--skip-build` bez utworzenia wheel-a. 5 testów Cargo PASS dotyczy niezmienionego kodu Rust. Receipt: `receipt:sorust.rebuild-validation.eefdb1c`. Wcześniejszy wynik 92 testów powyżej odnosi się do historycznej rewizji korekty stagingu.
 
 <!-- docs:section content -->
 ## Content
@@ -264,7 +272,7 @@ Budować przez `python -m build`, z dostępnym kompilatorem C, nagłówkami CPyt
 
 ### Ponowne budowanie konsumenta
 
-Można ponownie budować wheel w tym samym drzewie źródeł po zmianie `python-modules` lub usunięciu dawnego modułu. Każde wywołanie `build_wheel` używa osobnego tymczasowego stagingu pod `build/`, obejmującego bibliotekę oraz etap instalacji przed utworzeniem archiwum. Do nowej paczki trafiają bieżące moduły i nowy manifest; stare rozszerzenie nie może przesłonić aktualnego źródła Python. Nie trzeba usuwać wcześniejszego `build/lib.*` ani `build/bdist.*` dla tego przepływu. Usuwa się tylko staging utworzony przez bieżące wywołanie; cache kompilatorów pozostaje współdzielony między kolejnymi budowami.
+Można ponownie budować wheel w tym samym drzewie źródeł po zmianie `python-modules` lub usunięciu dawnego modułu. Każde wywołanie `build_wheel` używa osobnego tymczasowego stagingu pod `build/`, obejmującego bibliotekę oraz etap instalacji przed utworzeniem archiwum. Do nowej paczki trafiają bieżące moduły i nowy manifest; stare rozszerzenie nie może przesłonić aktualnego źródła Python. Nie trzeba usuwać wcześniejszego `build/lib.*` ani `build/bdist.*` dla tego przepływu. Opcja wheel-a `--skip-build` jest nieobsługiwana: hook zgłasza `ValueError` i nie tworzy wheel-a z niepełną zawartością. Usuwa się tylko staging utworzony przez bieżące wywołanie; cache kompilatorów pozostaje współdzielony między kolejnymi budowami.
 
 To rozdzielenie zawartości wheel-i, bez deklaracji izolacji procesu budowania, bezpiecznej równoległej budowy jednego drzewa ani obsługi dowolnych ręcznie dodanych binarek w źródłach. Wywołania w tym samym drzewie należy serializować. Standardowa izolacja zależności PEP 517 pozostaje odrębną właściwością frontendu.
 
