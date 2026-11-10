@@ -328,7 +328,7 @@ def main(argv=None):
     parser.add_argument("--sorust-wheel", type=Path)
     parser.add_argument("--rust-rlib", type=Path)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--number", type=int, default=60)
+    parser.add_argument("--number", type=int, default=1000)
     parser.add_argument("--worker", choices=["source", "wheel", "exported"], help=argparse.SUPPRESS)
     parser.add_argument("--run-root", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--report", type=Path, help=argparse.SUPPRESS)

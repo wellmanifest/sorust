@@ -81,7 +81,7 @@
         "criterion": "AC-01",
         "commands": [
           "python -m pytest -q tests/test_nl_dsl_pilot.py",
-          "python -I tests/benchmark_nl_dsl_pilot.py --consumer-root /home/tom/github/wellmanifest/nl-dsl-llm --revision aa47c8752f1ea446208f6dfb7a018ad02e92250a --sorust-wheel FILE --rust-rlib FILE --output PRIVATE"
+          "python -I tests/benchmark_nl_dsl_pilot.py --consumer-root CONSUMER_CHECKOUT --revision aa47c8752f1ea446208f6dfb7a018ad02e92250a --sorust-wheel FILE --rust-rlib FILE --output PRIVATE"
         ],
         "evidence": "New scratch, revision/wheel/resource confinement validation; unchanged consumer files, real sdist/wheel and source/native/export parity; actual pinned conformance function results per mode; resource limitation and Unicode mismatch explicit; prebuilt shared Rust .so and .rlib reuse proven."
       },
