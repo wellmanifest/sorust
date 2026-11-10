@@ -12,7 +12,7 @@ from collections.abc import Callable, Generator, Iterable
 from functools import lru_cache
 from itertools import islice
 from operator import index
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import SupportsIndex
 
 __version__ = "0.1.0"
@@ -21,7 +21,40 @@ __all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "iter_ascii_token_co
 
 
 class NativeArtifactError(RuntimeError):
-    """A required binary is missing, incompatible or fails integrity checks."""
+    """A required native file or resource is missing or fails validation."""
+
+
+def _resource_path(value: str) -> Path:
+    """One explicit data file, relative to the artifact package."""
+    if (not isinstance(value, str) or not value or any(c in value for c in "\\:*?[]")
+            or any(ord(character) < 32 for character in value)):
+        raise ValueError("resource path must be a canonical package-relative POSIX path")
+    relative = PurePosixPath(value)
+    if (not relative.parts or relative.is_absolute() or ".." in relative.parts
+            or relative.as_posix() != value
+            or relative.parts[0].casefold() in {"_native", "sorust-artifacts.json"}
+            or relative.suffix.lower() in {".py", ".pyc", ".pyo", ".pyw", ".so", ".pyd", ".dll", ".dylib"}):
+        raise ValueError("unsafe or reserved resource path")
+    return Path(*relative.parts)
+
+
+def _resource_entries(manifest: dict) -> list:
+    if manifest["schema"] == "sorust.artifacts/v1":
+        if "resources" in manifest:
+            raise ValueError("declared resources require manifest v2")
+        return []
+    resources = manifest["resources"]
+    if not isinstance(resources, list):
+        raise ValueError("manifest v2 requires a resources list")
+    occupied = {Path(item["path"]) for item in manifest["artifacts"] + manifest.get("headers", [])}
+    for item in resources:
+        if not isinstance(item, dict) or set(item) != {"path", "sha256"}:
+            raise ValueError("resource entries require path and sha256")
+        relative = _resource_path(item["path"])
+        if relative in occupied:
+            raise ValueError("conflicting resource path")
+        occupied.add(relative)
+    return resources
 
 
 def verify_artifacts(package_dir: str | Path | None = None) -> dict:
@@ -29,20 +62,24 @@ def verify_artifacts(package_dir: str | Path | None = None) -> dict:
     root = Path(package_dir) if package_dir is not None else Path(__file__).parent
     try:
         manifest = json.loads((root / "sorust-artifacts.json").read_text())
-        if manifest["schema"] != "sorust.artifacts/v1" or manifest["abi_version"] != 1:
+        if manifest["schema"] not in {"sorust.artifacts/v1", "sorust.artifacts/v2"} or manifest["abi_version"] != 1:
             raise ValueError("unsupported manifest or ABI")
         artifacts = manifest["artifacts"]
         kinds = [item["kind"] for item in artifacts]
         if (kinds.count("rust-cdylib") != 1 or "python-extension" not in kinds
                 or set(kinds) != {"rust-cdylib", "python-extension"}):
             raise ValueError("both native artifact kinds are required")
-        for item in artifacts + manifest.get("headers", []):
+        resources = _resource_entries(manifest)
+        resource_paths = {Path(item["path"]) for item in resources}
+        for item in artifacts + manifest.get("headers", []) + resources:
             relative = Path(item["path"])
             if relative.is_absolute() or ".." in relative.parts:
                 raise ValueError("unsafe artifact path")
             path = root / relative
             if path.is_symlink() or not path.resolve().is_relative_to(root.resolve()):
                 raise ValueError("artifact escapes package")
+            if relative in resource_paths and any(p.is_symlink() for p in path.parents):
+                raise ValueError("resource path contains a symlink")
             if hashlib.sha256(path.read_bytes()).hexdigest() != item["sha256"]:
                 raise ValueError("artifact checksum mismatch")
         return manifest
@@ -51,7 +88,7 @@ def verify_artifacts(package_dir: str | Path | None = None) -> dict:
 
 
 def export_artifacts(destination: str | Path, *, package_dir: str | Path | None = None) -> Path:
-    """Copy verified native files to a new directory, writing the manifest last.
+    """Copy verified native files and declared resources; write the manifest last.
 
     The destination's parent must exist. Existing destinations are never reused.
     A failed copy can leave an incomplete output; no compiler or loader runs.
@@ -59,7 +96,7 @@ def export_artifacts(destination: str | Path, *, package_dir: str | Path | None 
     root = Path(package_dir) if package_dir is not None else Path(__file__).parent
     manifest = verify_artifacts(root)
     payload = {}
-    for item in manifest["artifacts"] + manifest.get("headers", []):
+    for item in manifest["artifacts"] + manifest.get("headers", []) + manifest.get("resources", []):
         relative = Path(item["path"])
         if relative in payload or relative == Path("sorust-artifacts.json"):
             raise NativeArtifactError(f"Conflicting export path: {relative}")
