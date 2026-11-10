@@ -1,0 +1,128 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-007",
+  "summary": "Amortize FFI overhead with batched token counting",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-007/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "crates/sorust-kernel/src/lib.rs",
+    "docs/information/sorust-binary-standard.md",
+    "include/sorust.h",
+    "src/sorust/__init__.py",
+    "src/sorust/_compat.py",
+    "tests/benchmark_count_many.py",
+    "tests/test_build.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "069cf837755284b0a622ec25cc3b9a36bebe5dfd",
+    "targetBranch": "main",
+    "outcome": "Amortize measured FFI overhead with count_ascii_tokens_many and one additive versioned C batch call; validate parity, pointer/length errors, legacy scalar compatibility and >=2x median speedup for 256x64B, then independently publish/merge.",
+    "nonGoals": [
+      "Change scalar token semantics, C ABI version1 baseline, dependency versions or supported platforms.",
+      "Claim universal speedup, zero-copy batching or measured nl-* fleet improvement; batch adapter joins buffers once.",
+      "Publish a registry release, deploy, migrate consumers, edit protected policy or self-approve/merge."
+    ],
+    "complexity": "L",
+    "estimatedMinutes": 50,
+    "budgets": {
+      "maxAffectedComponents": 5,
+      "maxImplementationFiles": 7,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 3
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Batch ABI accepts one contiguous immutable byte region and size_t lengths, validates sum with checked arithmetic, pointer/count/slice limits before writes, and reuses scalar Rust kernel per segment. Raw output writes allow uninitialized C storage. Python snapshots/normalizes bytes subclasses, joins once and calls Rust once; compiled-Python batch uses the same reference semantics and existing verified loader factored without changing scalar validation. ABI1 scalar entry stays compatible; missing optional batch symbol raises NativeArtifactError. Benchmark compares warmed full public adapters and records copy cost/limits.",
+      "components": [
+        {
+          "name": "python-adapters",
+          "paths": [
+            "src/sorust/__init__.py",
+            "src/sorust/_compat.py"
+          ]
+        },
+        {
+          "name": "rust-c-batch-abi",
+          "paths": [
+            "crates/sorust-kernel/src/lib.rs",
+            "include/sorust.h"
+          ]
+        },
+        {
+          "name": "integration-regressions",
+          "paths": [
+            "tests/test_build.py"
+          ]
+        },
+        {
+          "name": "reproducible-benchmark",
+          "paths": [
+            "tests/benchmark_count_many.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [],
+      "interfaceChanges": [
+        "count_ascii_tokens_many(inputs, *, backend=rust|compiled-python) -> list[int]",
+        "additive sorust_count_ascii_tokens_many_v1(data, length, lengths, count, output) C entry",
+        "private compiled-Python batch implementation supporting reference parity"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Revert through independent protected review; keep prior dist, exact baseline wheel/venv, benchmark samples and all generated data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_build.py -k many",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml"
+        ],
+        "evidence": "Differential generator/bytes-subclass/empty/binary/UTF8 inputs, one-call safe lengths, invalid native parameters/overflow with unchanged outputs, verified compiled imports and legacy ABI1 scalar compatibility."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -I tests/benchmark_count_many.py",
+          "python -m pytest -q tests",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Record warmed median of9 repeats including public adapter overhead/copying; >=2x for256x64B vs same-wheel scalar Rust; report3B/4096B cases, exact manifest/compiler and no-CPU-affinity limits. Full build/export/C/Rust/Python regression suite passes."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "git diff --check",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Existing indexed canonical documentv10 binds source/tests/benchmark; required exact-head checks and independent approval/merge, then current-owner release and exact preserved worktree cleanup."
+      }
+    ]
+  }
+}

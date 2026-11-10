@@ -3,7 +3,7 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 9,
+  "version": 10,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
@@ -11,7 +11,7 @@
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "ec05144a7aa582fc646a61b4ff78aafefb08b443",
+  "source_revision": "38b30c63dbead064c9a8b85da260907e0c181abb",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -35,7 +35,17 @@
     "https://github.com/wellmanifest/sorust/blob/29420b36642880671111b0e05b2a8998c02f23b3/tests/test_build.py",
     "https://github.com/wellmanifest/sorust/blob/ec05144a7aa582fc646a61b4ff78aafefb08b443/src/sorust/__init__.py",
     "https://github.com/wellmanifest/sorust/blob/ec05144a7aa582fc646a61b4ff78aafefb08b443/src/sorust/__main__.py",
-    "https://github.com/wellmanifest/sorust/blob/ec05144a7aa582fc646a61b4ff78aafefb08b443/tests/test_build.py"
+    "https://github.com/wellmanifest/sorust/blob/ec05144a7aa582fc646a61b4ff78aafefb08b443/tests/test_build.py",
+    "https://github.com/wellmanifest/sorust/blob/38b30c63dbead064c9a8b85da260907e0c181abb/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/38b30c63dbead064c9a8b85da260907e0c181abb/src/sorust/_compat.py",
+    "https://github.com/wellmanifest/sorust/blob/38b30c63dbead064c9a8b85da260907e0c181abb/crates/sorust-kernel/src/lib.rs",
+    "https://github.com/wellmanifest/sorust/blob/38b30c63dbead064c9a8b85da260907e0c181abb/include/sorust.h",
+    "https://github.com/wellmanifest/sorust/blob/38b30c63dbead064c9a8b85da260907e0c181abb/tests/test_build.py",
+    "https://github.com/wellmanifest/sorust/blob/38b30c63dbead064c9a8b85da260907e0c181abb/tests/benchmark_count_many.py",
+    "receipt:sorust.batch-baseline.069cf83",
+    "receipt:sorust.paired-batch.38b30c6",
+    "https://doc.rust-lang.org/std/slice/fn.from_raw_parts.html",
+    "https://doc.rust-lang.org/std/ptr/fn.write.html"
   ]
 }
 ---
@@ -75,6 +85,20 @@ Osobny lokalny canary na bazie `23e6adcf2ed09803b552ad229bc0dc87cf2409eb` potwie
 
 Eksport binarek w źródle `ec05144a7aa582fc646a61b4ff78aafefb08b443`: dodano `export_artifacts` i CLI `python -m sorust export` dla plików wskazanych w manifeście v1. 16 nowych testów przeszło (7,31 s): rzeczywista instalacja API/CLI, dokładne bajty i sumy eksportu, załadowanie rozszerzenia w czystym venv bez Sorust/Cython, klient C linkujący wyeksportowane Rust cdylib, odmowa nadpisania ośmiu wariantów istniejącego celu, brak wyjścia dla uszkodzonego/brakującego/uciekającego źródła i powtórzonej ścieżki, ponowne sprawdzenie snapshotu oraz brak manifestu po kontrolowanym błędzie kopiowania. Istniejące testy obcych konsumentów sprawdzają również eksport pakietów pojedynczych i zagnieżdżonych przez API. Pełna walidacja: 52 testy pytest PASS (19,33 s) i 2 testy Cargo PASS. Osobny lokalny canary CLI `--package-dir` wyeksportował rzeczywisty obcy pakiet z dwoma rozszerzeniami i zgodnymi sumami; receipt `receipt:sorust.foreign-export.ec05144`. Nie dodano zależności runtime ani zmian algorytmu i ABI.
 
+Liczenie wsadowe w źródle `38b30c63dbead064c9a8b85da260907e0c181abb`: profil zainstalowanej bazy `069cf837755284b0a622ec25cc3b9a36bebe5dfd` wykazał koszt wielu przejść FFI. Dla 256 buforów po 3 B mediana dziewięciu rozgrzanych serii wyniosła Rust-scalar 290,42 µs i Python-reference 74,63 µs; dla 64 B Rust-scalar 345,74 µs. Receipt: `receipt:sorust.batch-baseline.069cf83`. Dodano `count_ascii_tokens_many` oraz addytywny symbol C `sorust_count_ascii_tokens_many_v1`; Rust otrzymuje połączone bajty i długości segmentów w jednym wywołaniu. Wariant compiled-python i referencja zachowują tę samą semantykę. Stare wywołanie skalarne ABI v1 pozostaje zgodne.
+
+Walidacja źródła: 29 testów celowanych PASS (11,21 s), pełne 71 testów pytest PASS (33,90 s) i 5 testów Cargo PASS. Obejmuje losowe/NUL/UTF-8/puste dane, generatory i podklasy bytes, weryfikację importu obu API przed załadowaniem, brak opcjonalnego symbolu w starej bibliotece ABI v1, niezgodne długości i przepełnienia bez częściowego zapisu, C-klienta z niezainicjalizowaną tablicą wyników oraz eksport samodzielnego modułu Python z funkcją wsadową.
+
+Pomiar publicznych adapterów w minimalnych venv (Linux x86_64, CPython 3.13.12, rustc 1.97.1, Cython 3.3.1): ta sama procedura uruchomiona dla starego wheel-a przed i po kandydacie, po dziewięć rozgrzanych serii, bez przypięcia CPU. Wariant Rust-many wlicza normalizację, łączenie bajtów, tablice ctypes i utworzenie listy wyników. Poniżej mediany dla 256 buforów w kandydacie z jednego wheel-a:
+
+| Bajty/bufor | Rust-scalar, µs/paczka | Rust-many, µs/paczka | Przyspieszenie |
+| --- | --- | --- | --- |
+| 3 | 596,87 | 159,06 | 3,75× |
+| 64 | 362,03 | 116,92 | 3,10× |
+| 4096 | 910,02 | 786,72 | 1,16× |
+
+Cel ≥2× dla 256 × 64 B został osiągnięty. Receipt `receipt:sorust.paired-batch.38b30c6` wiąże dokładny wheel, środowiska i próbki; kod odtwarzający: `tests/benchmark_count_many.py`. Czasy skalarne zmieniały się między seriami; cel porównano z pętlą skalarną tego samego wheel-a. To mikrobenchmark powtarzanych buforów, bez dowodu przyspieszenia rzeczywistych procesów `nl-*` ani gwarancji wyniku dla dowolnej paczki. Wcześniejsza seria z przygotowanego venv dała 3,84× dla 64 B; surowe wyniki obu serii pozostają prywatne.
+
 <!-- docs:section content -->
 ## Content
 
@@ -90,12 +114,42 @@ Eksport binarek w źródle `ec05144a7aa582fc646a61b4ff78aafefb08b443`: dodano `e
 | SORUST-008 | Budowanie Rust używa `--release --locked --offline`. Sdist MUSI zawierać źródła, Cargo.lock i konfigurację backendu. `Cargo.lock` MUSI być zwykłym plikiem projektu, bez dowiązań także do innych plików wewnętrznych; zależności Cargo należy wcześniej dostarczyć do cache lub vendor. |
 | SORUST-009 | Adapter Python MUSI przekazać do ABI C długość rzeczywistego, niezmiennego bufora. Podklasy `bytes` w `count_ascii_tokens` normalizuje się z bufora przed obiema implementacjami; zwykłe `bytes` zachowują ścieżkę bez dodatkowej kopii w adapterze. |
 | SORUST-010 | Eksport plików z manifestu MUSI zweryfikować źródła przed utworzeniem nowego celu, zachować względne ścieżki i sumy oraz zapisać manifest po plikach. Nie wolno ponownie używać istniejącego katalogu, pliku ani dowiązania jako celu eksportu. |
+| SORUST-011 | Wsad MUSI zachować kolejność i semantykę każdego bufora oraz odrzucić niespójne długości, przepełnienie sumy, zbyt duże rozmiary tablic i niedozwolone NULL przed zapisem wyników. Ważność i rozłączność pozostałych wskaźników należą do obowiązków klienta C. |
 
 Pierwsze jądro `sorust-kernel` liczy tokeny bajtowe oddzielone dokładnie przez spację i bajty 9–13. Pozostałe bajty, w tym NUL i UTF-8, są nieprzezroczyste. To nie jest tokenizer modelu LLM.
 
 `count_ascii_tokens(data: bytes, backend="rust")` używa Rust. `backend="compiled-python"` jawnie wybiera rozszerzenie Cython. Obie ścieżki mają identyczną semantykę; wzorzec `.py` pozostaje w źródłach i sdist.
 
 Rust generuje również `.rlib` dla klientów używających zgodnego kompilatora i strategii panic. To opcjonalny wynik Cargo, nie przenośne ABI ani zawartość wheel-a. Współdzielenie między językami odbywa się przez `cdylib` i dołączony nagłówek.
+
+### Wiele buforów w jednym wywołaniu
+
+```python
+from sorust import count_ascii_tokens_many
+assert count_ascii_tokens_many([b"one two", b"three", b""]) == [2, 1, 0]
+assert count_ascii_tokens_many([b"a", b"b"], backend="compiled-python") == [1, 1]
+```
+
+API przyjmuje iterable obiektów `bytes`, zachowuje kolejność i zwraca `list[int]`; pusta paczka daje `[]`, z wymaganymi artefaktami natywnymi także w tym przypadku. Podklasy bytes normalizuje się przez ich rzeczywisty bufor. Elementy innych typów powodują `TypeError`, nieznany backend — `ValueError`, brak/uszkodzenie wymaganej binarki lub brak nowego symbolu/metody — `NativeArtifactError`. Nie wykonuje się zastępczej pętli skalarnej przy braku obsługi wsadów.
+
+Adapter materializuje iterable, łączy bajty do jednego bufora i tworzy tablice długości/wyników. Koszt tych alokacji i kopii jest wliczony w pomiary; wielkość paczki należy dobrać do pamięci i profilu konsumenta. Każdy segment liczy się osobno, także bez separatora na granicy. Wariant compiled-python sprawdza manifest i natywny loader raz dla całej paczki, zachowując dotychczasowe sprawdzanie każdego wywołania skalarnego.
+
+W ABI C pozostaje wersja 1; dodatkowa deklaracja to:
+
+```c
+int32_t sorust_count_ascii_tokens_many_v1(const uint8_t *input, size_t length,
+    const size_t *lengths, size_t count, uint64_t *output);
+```
+
+`count` długości musi sumować się dokładnie do `length`. Dla `count=0` wymagane jest `length=0`, a wszystkie wskaźniki mogą być NULL. Dla dodatniej liczby elementów tablice długości i wyników są nie-NULL i odpowiednio wyrównane; `input` może być NULL wyłącznie dla `length=0`. Pamięć wyjściowa jest wyłącznie zapisywalna na czas wywołania i rozłączna z niezmiennymi danymi i długościami. Może być niezainicjalizowana: implementacja używa surowego zapisu, zgodnie z [kontraktem ptr::write](https://doc.rust-lang.org/std/ptr/fn.write.html). Każdy odczytywany region pozostaje w jednej żywej alokacji, zgodnie z [wymaganiami slice::from_raw_parts](https://doc.rust-lang.org/std/slice/fn.from_raw_parts.html). Rozmiary tablic i sumy są sprawdzane przed zapisami, status 1 pozostawia wyniki bez zmian. Nienullowe wskaźniki nadal muszą wskazywać poprawną pamięć; ABI nie potrafi potwierdzić dowolnej ważności adresu. Starszy klient skalarny może używać nowej biblioteki; nowa funkcja wsadowa jawnie odrzuca starszą bibliotekę bez tego symbolu.
+
+Benchmark po zainstalowaniu konkretnego wheel-a w venv:
+
+```bash
+python -I tests/benchmark_count_many.py --output batch-benchmark.json
+```
+
+W pracy nad repozytorium polecenie uruchamia się przez zatwierdzony `wellman run`, a wynik zapisuje pod prywatnym `.subactor/receipts/`. Benchmark zapisuje próbki, digest skryptu, manifest binarek i wersje środowiska; progów czasowych nie egzekwuje niedeterministyczny test pytest w CI.
 
 ### Eksport do współdzielenia binarek
 
@@ -184,4 +238,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Każda następna zmiana, w tym eksport w ticket-006, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Każda następna zmiana, w tym wsady w ticket-007, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
