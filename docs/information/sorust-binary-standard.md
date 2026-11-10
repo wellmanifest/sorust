@@ -3,14 +3,14 @@
   "schema": "wellmanifest.docs/document/v1",
   "id": "sorust-binary-standard",
   "kind": "information",
-  "version": 14,
+  "version": 15,
   "title": "Sorust 0.1: standard dwóch artefaktów",
   "status": "implemented",
   "owner": "wellmanifest/sorust",
   "created": "2026-11-09",
   "updated": "2026-11-10",
   "review_after": "2027-02-09",
-  "source_revision": "7a87f03b6e15796081578af655e6e5e59fbf5f9f",
+  "source_revision": "db0851e278fd35ff894a5069daf439489512130b",
   "affected_repositories": [
     "wellmanifest/sorust"
   ],
@@ -64,7 +64,15 @@
     "receipt:sorust.package-init-baseline.bf83dc5",
     "receipt:sorust.package-init-targeted.7a87f03",
     "https://github.com/wellmanifest/sorust/pull/9",
-    "receipt:sorust.package-init-validation.7a87f03"
+    "receipt:sorust.package-init-validation.7a87f03",
+    "https://github.com/wellmanifest/sorust/blob/db0851e278fd35ff894a5069daf439489512130b/src/sorust/__init__.py",
+    "https://github.com/wellmanifest/sorust/blob/db0851e278fd35ff894a5069daf439489512130b/tests/test_build.py",
+    "https://github.com/wellmanifest/sorust/blob/db0851e278fd35ff894a5069daf439489512130b/tests/benchmark_prepared_counter.py",
+    "receipt:sorust.compiled-call-baseline.04e38d5",
+    "receipt:sorust.prepared-counter-targeted.db0851e",
+    "https://github.com/wellmanifest/sorust/pull/10",
+    "receipt:sorust.prepared-counter-validation.db0851e",
+    "receipt:sorust.prepared-counter-performance.db0851e"
   ]
 }
 ---
@@ -145,6 +153,22 @@ Ten sam eksport z czterema rozszerzeniami działa w nowym venv bez Sorust i Cyth
 
 Pełna walidacja tej rewizji: 94 testy pytest PASS (83,87 s) oraz 5 testów Cargo PASS; receipt `receipt:sorust.package-init-validation.7a87f03`. Zakres obejmuje poprzednie regresje budowania, importów, eksportu i API scalar/many/stream oraz nowy wariant czterech rozszerzeń i samodzielnego Rust cdylib. W tej zmianie modyfikowano wyłącznie testy i dokumentację.
 
+Przygotowany licznik w źródle `db0851e278fd35ff894a5069daf439489512130b`: profil zainstalowanej bazy `04e38d529532538ee9adbeb38b509bf95fc052e5` wykazał koszt powtarzanej weryfikacji i wyboru rozszerzenia dla małych danych. Dla 64 B mediana siedmiu rozgrzanych serii wyniosła 1,861 ms dla publicznego compiled-python i 0,378 µs dla już zweryfikowanej funkcji natywnej. Receipt: `receipt:sorust.compiled-call-baseline.04e38d5`. To mikrobenchmark bez przypięcia CPU, nie wynik procesów `nl-*`. Dodano jawną funkcję `prepare_ascii_token_counter`, zwracającą callable związany z natywnym wejściem. Weryfikacja i wybór następują podczas przygotowania, a kolejne wywołania nie czytają plików.
+
+Dziesięć testów celowanych PASS (26,23 s) i 5 testów Cargo PASS. Pokrycie obejmuje brak artefaktów/wejścia, niepoprawny backend, tożsamość zwykłych bytes, długości rzeczywistego bufora podklas, utrzymanie uchwytu CDLL, status błędu FFI, losowe/NUL/UTF-8/puste dane oraz równoległe wywołania obu backendów. Test zmienia wyłącznie niemapowany nagłówek: przygotowany licznik zachowuje działające wiązanie, natomiast jawny audyt i nowe przygotowanie odrzucają drift. Istniejący scalar compiled-python nadal odrzuca taką zmianę przy kolejnym wywołaniu. Receipt: `receipt:sorust.prepared-counter-targeted.db0851e`. Testy nie modyfikują wykonywalnych, załadowanych binarek. Wersja 15 uzupełnia wersję 14; dotychczasowe API, jądro Rust, ABI i zależności pozostają zgodne.
+
+Pełna walidacja źródła: 104 testy pytest PASS (201,57 s) i 5 testów Cargo PASS, receipt `receipt:sorust.prepared-counter-validation.db0851e`. Źródła istniejących funkcji scalar/many/stream, weryfikacji, eksportu i loaderów pozostają identyczne z bazą. Nowe przygotowanie nie zmienia ich dotychczasowego sprawdzania.
+
+Porównanie publicznych API w jednym wheel-u, osobny minimalny venv na Linux x86_64 / CPython 3.13.12, siedem rozgrzanych serii. Poniżej mediany kolejnych wywołań compiled-python; przygotowanie licznika jest wyłączone z tych czasów:
+
+| Bajty | Public scalar, µs | Prepared, µs | Stosunek czasów |
+| --- | --- | --- | --- |
+| 3 | 1973.34 | 0.389 | 5070.9× |
+| 64 | 2235.74 | 0.350 | 6384.7× |
+| 4096 | 1719.98 | 46.366 | 37.1× |
+
+Cel ≥20× dla 64 B został osiągnięty (6384,7× w tym pomiarze). Porównywane API mają różny jawny moment audytu: public scalar ponawia sprawdzanie, prepared wykorzystuje wcześniej zweryfikowane wiązanie. To nie jest przyspieszenie tej samej polityki odczytu plików ani całego procesu `nl-*`. Mediana osobno mierzonego przygotowania po rozgrzaniu wyniosła 1,514 ms dla compiled-python i 1,238 ms dla Rust; zimnego ładowania nie mierzono. Rust dla 64 B dał 2,184 µs public i 2,143 µs prepared; nie deklaruje się nowego przyspieszenia dla Rust. Brak przypięcia CPU, małe powtarzane bufory i zmienność próbek ograniczają wniosek do tej lokalnej procedury. Receipt `receipt:sorust.prepared-counter-performance.db0851e` wiąże dokładny wheel, manifest, digest skryptu i wszystkie próbki. Pomiary wykonano po zakończeniu pełnego zestawu testów; próg nie jest bramą czasową CI.
+
 <!-- docs:section content -->
 ## Content
 
@@ -163,12 +187,31 @@ Pełna walidacja tej rewizji: 94 testy pytest PASS (83,87 s) oraz 5 testów Carg
 | SORUST-011 | Wsad MUSI zachować kolejność i semantykę każdego bufora oraz odrzucić niespójne długości, przepełnienie sumy, zbyt duże rozmiary tablic i niedozwolone NULL przed zapisem wyników. Ważność i rozłączność pozostałych wskaźników należą do obowiązków klienta C. |
 | SORUST-012 | Iterator MUSI zachować kolejność, pobierać co najwyżej `batch_size` elementów do bieżącej paczki i sprawdzić obsługę natywną przed pobraniem źródła. Nie wywołuje `close()` na źródle należącym do klienta. Błąd nieukończonej paczki nie udostępnia jej częściowych wyników. |
 | SORUST-013 | Backend MUSI składać każdy wheel z aktualnych źródeł i konfiguracji w świeżym stagingu, oddzielonym od wcześniejszych katalogów biblioteki i pakowania. Wycofany z kompilacji moduł wraca jako bieżący Python, jeżeli jego źródło istnieje; usunięty moduł nie może przetrwać przez cache poprzedniej budowy. |
+| SORUST-014 | Przygotowany licznik MUSI audytować artefakty podczas przygotowania i utrzymywać uchwyt biblioteki przez czas użycia. Kontrakt MUSI jawnie odróżniać ten audyt od kolejnych wywołań bez odczytu plików; audyt ani nowe przygotowanie nie stanowią hot reload kodu w procesie. |
 
 Pierwsze jądro `sorust-kernel` liczy tokeny bajtowe oddzielone dokładnie przez spację i bajty 9–13. Pozostałe bajty, w tym NUL i UTF-8, są nieprzezroczyste. To nie jest tokenizer modelu LLM.
 
 `count_ascii_tokens(data: bytes, backend="rust")` używa Rust. `backend="compiled-python"` jawnie wybiera rozszerzenie Cython. Obie ścieżki mają identyczną semantykę; wzorzec `.py` pozostaje w źródłach i sdist.
 
 Rust generuje również `.rlib` dla klientów używających zgodnego kompilatora i strategii panic. To opcjonalny wynik Cargo, nie przenośne ABI ani zawartość wheel-a. Współdzielenie między językami odbywa się przez `cdylib` i dołączony nagłówek.
+
+### Przygotowany licznik dla częstych wywołań
+
+```python
+from sorust import prepare_ascii_token_counter
+
+count = prepare_ascii_token_counter(backend="compiled-python")
+assert count(b"one two") == 2
+assert count(b"") == 0
+```
+
+`prepare_ascii_token_counter(*, backend="rust") -> Callable[[bytes], int]` sprawdza backend i wymagane artefakty podczas przygotowania. Niepoprawny backend daje `ValueError`; brak/uszkodzenie pliku, niezgodne ABI albo brak wywoływalnego wejścia compiled-python — `NativeArtifactError`. Rust audytuje pliki również wtedy, gdy jądro zostało już zbuforowane w procesie. Loader compiled-python zachowuje dotychczasowe wiązanie do zweryfikowanej binarki przed importem.
+
+Callable przechowuje natywne wejście oraz uchwyt CDLL dla Rust. Przyjmuje tylko `bytes`, odrzuca inne typy przez `TypeError`, normalizuje podklasy przez rzeczywisty bufor i nie kopiuje zwykłych bytes w adapterze. Każde wywołanie Rust ma własny wynik uint64; nie współdzieli bufora wyjściowego z innymi wywołaniami. Niezerowy status FFI daje `NativeArtifactError`.
+
+Kolejne wywołania zachowują wiązanie i nie powtarzają sprawdzania plików. To jawny wybór dla wielokrotnych wywołań w workerze: licznik przygotowuje się raz, a koszt audytu ponosi podczas tworzenia. `verify_artifacts()` lub nowe przygotowanie wykrywa późniejszy drift plików. Loader CPython i CDLL nadal korzysta z pamięci podręcznej procesu; ponowny audyt nie przeładowuje wcześniej załadowanego kodu. Zmiana załadowanej binarki wymaga nowego procesu. Dotychczasowe funkcje scalar/many/stream zachowują swoje zasady sprawdzania; Rust już buforuje jądro i nie ma tu nowego celu przyspieszenia dla Rust.
+
+Odtwarzalny benchmark publicznych API: `python -I tests/benchmark_prepared_counter.py --output .subactor/receipts/prepared-counter-benchmark.json`, w repozytorium przez zatwierdzony `wellman run`, po instalacji konkretnego wheel-a. Zapisuje siedem rozgrzanych serii, pełny manifest, digest skryptu, środowisko oraz osobny koszt przygotowania po rozgrzaniu. Ten koszt nie obejmuje zimnego ładowania i nie wchodzi do czasów kolejnych wywołań. Progów czasowych nie dodano do pytest ani chronionej bramy CI.
 
 ### Wiele buforów w jednym wywołaniu
 
@@ -326,4 +369,4 @@ Właściciele konsumentów wybierają bottleneck na podstawie profilu, dodają t
 
 Ścieżka dla istniejącego publicznego repozytorium została niezależnie opublikowana w kontrolerze przez [PR934](https://github.com/subactor/onedev-agent/pull/934), merge `a0dfebf0d2826c59bf0759adad64736e7dccad6a`, i dokładną politykę [PR935](https://github.com/subactor/onedev-agent/pull/935), merge `b40bc32a5b5a2a7f54996f2b0d6bb1e67a62bec4`. Zasady prywatnego bootstrapu zachowano. Kontroler sprawdził bajty obu modułów względem zatwierdzonego źródła, wystawił jednorazowy grant dla planu `7e901cfd9781e8596e6a56da24744b400052a82a42880e1a9f2f9a916ca85045`, a Publisher odczytał wynik publikacji. Właścicielska zależność to `subactor/onedev-agent / PLF-22278`.
 
-Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Każda następna zmiana, w tym walidacja inicjalizatorów w ticket-010, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
+Pierwsza implementacja została niezależnie scalona przez [PR1](https://github.com/wellmanifest/sorust/pull/1) jako `4d3d97226fc8b29fb84ea8b61f42443d86cc2faa`. Korekty importu i bufora zostały niezależnie scalone w [PR2](https://github.com/wellmanifest/sorust/pull/2) jako `f6b9829ed488e0fc34b6b4c47130abc836d01d7e` i [PR3](https://github.com/wellmanifest/sorust/pull/3) jako `b0e9c9c13ce1e72476ce851b557189655e59dda3`. Korektę Cargo.lock scalono przez [PR4](https://github.com/wellmanifest/sorust/pull/4) jako `23e6adcf2ed09803b552ad229bc0dc87cf2409eb`. Walidację wielu modułów scalono przez [PR5](https://github.com/wellmanifest/sorust/pull/5) jako `37c7389400d26ec504e4156a381e6c8dda2c47bf`. Eksport binarek scalono przez [PR6](https://github.com/wellmanifest/sorust/pull/6) jako `069cf837755284b0a622ec25cc3b9a36bebe5dfd`. Wsady scalono przez [PR7](https://github.com/wellmanifest/sorust/pull/7) jako `ef788e90d9dce61c559418416b8d49c4a8b6ca66`, po niezależnym zatwierdzeniu HEAD `9d3a6d2dcdcc25264b587b45f45315b18d6da9c4`. Iterator scalono przez [PR8](https://github.com/wellmanifest/sorust/pull/8) jako `b10294160915d5507e8a50ace6a78f2a9db7feeb`, po niezależnym zatwierdzeniu HEAD `2129599488fc1c004db7756290c5139584b84d3c`. Staging i odmowę pominięcia budowy scalono przez [PR9](https://github.com/wellmanifest/sorust/pull/9) jako `bf83dc5a5da2eae33d3c7a666679e8dd3a5223d9`, po niezależnym zatwierdzeniu HEAD `3c2e6bd15ba6e08f6f435c6780cd15a318ca5f36`. Walidację inicjalizatorów scalono przez [PR10](https://github.com/wellmanifest/sorust/pull/10) jako `04e38d529532538ee9adbeb38b509bf95fc052e5`, po niezależnym zatwierdzeniu HEAD `c8fef2e148d99419fc0c3dd8d7a2610f06c1faac`. Każda następna zmiana, w tym przygotowany licznik w ticket-011, wymaga własnych bram i niezależnego zatwierdzenia aktualnego HEAD przed scaleniem. Przygotowane wheel i sdist pozostają lokalnymi artefaktami do późniejszego, osobno autoryzowanego wydania.
