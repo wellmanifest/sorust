@@ -20,23 +20,31 @@ from pathlib import Path
 from . import NativeArtifactError, _resource_path, verify_artifacts
 
 
-def configuration(root: Path) -> dict:
+def configuration(root: Path, *, native_only: bool = False) -> dict:
     document = tomllib.loads((root / "pyproject.toml").read_text())
     config = document["tool"]["sorust"]
+    if native_only and "rust-manifest" not in config:
+        raise ValueError("Rust source backend requires rust-manifest")
     if ("rust-manifest" in config) == ("rust-component" in config):
         raise ValueError("choose exactly one rust-manifest or rust-component")
-    expected = {"python-modules", "rust-library", "artifact-package", "abi-version"}
+    expected = {"rust-library", "artifact-package", "abi-version"}
+    if not native_only:
+        expected.add("python-modules")
     expected.add("rust-component" if "rust-component" in config else "rust-manifest")
-    if (not expected.issubset(config) or set(config) - expected - {"resources"}
-            or config["abi-version"] != 1):
-        raise ValueError("tool.sorust requires the v1 dual-artifact configuration")
+    if (not expected.issubset(config) or set(config) - expected - (set() if native_only else {"resources"})
+            or config["abi-version"] != 1 or (native_only and type(config["abi-version"]) is not int)):
+        raise ValueError("tool.sorust requires the Rust-source component configuration" if native_only
+                         else "tool.sorust requires the v1 dual-artifact configuration")
+    if native_only and not all(isinstance(config[key], str) and config[key]
+                               for key in ["rust-manifest", "rust-library", "artifact-package"]):
+        raise ValueError("Rust source paths and names must be nonempty strings")
     dotted = r"[a-zA-Z_]\w*(?:\.[a-zA-Z_]\w*)*"
-    modules = config["python-modules"]
-    if (not isinstance(modules, list) or not modules or len(set(modules)) != len(modules)
+    modules = [] if native_only else config["python-modules"]
+    if not native_only and (not isinstance(modules, list) or not modules or len(set(modules)) != len(modules)
             or any(not isinstance(x, str) or not re.fullmatch(dotted, x) for x in modules)):
         raise ValueError("python-modules must contain unique dotted module names")
     package = config["artifact-package"]
-    if not re.fullmatch(dotted, package) or any(not x.startswith(package + ".") for x in modules):
+    if not isinstance(package, str) or not re.fullmatch(dotted, package) or any(not x.startswith(package + ".") for x in modules):
         raise ValueError("compiled modules must belong to artifact-package")
     if not re.fullmatch(r"[a-zA-Z_]\w*", config["rust-library"]):
         raise ValueError("invalid Rust library name")
@@ -62,6 +70,22 @@ def configuration(root: Path) -> dict:
             raise ValueError("prebuilt Rust component supplies its own headers; remove local include headers")
         _rust_component(config)
     _resource_files(root, config)
+    if native_only:
+        project = document.get("project", {})
+        if ("setuptools" in document.get("tool", {}) or project.get("dynamic")
+                or project.get("dependencies") or project.get("optional-dependencies")
+                or any(key in project for key in ["scripts", "gui-scripts", "entry-points"])
+                or not all(isinstance(project.get(key), str) and project[key] for key in ["name", "version"])
+                or list((root / "src").rglob("*.py"))):
+            raise ValueError("Rust source backend requires static metadata without Python packaging or runtime dependencies")
+        crate = root / Path(config["rust-manifest"]).parent
+        library = tomllib.loads((crate / "Cargo.toml").read_text()).get("lib", {})
+        if not isinstance(library, dict) or library.get("path", "src/lib.rs") != "src/lib.rs":
+            raise ValueError("Rust source backend requires the default src/lib.rs library")
+        for source in [*_source_files(root, config), crate / "src/lib.rs"]:
+            if (not source.is_file() or any(p.is_symlink() for p in [source, *source.parents])
+                    or not source.resolve().is_relative_to(root.resolve())):
+                raise ValueError(f"missing or unsafe Rust source input: {source}")
     return config
 
 
@@ -175,6 +199,68 @@ def _build_script(root: Path, config: dict) -> Path | None:
     return path.resolve()
 
 
+def _build_rust(root: Path, config: dict, build_temp, package_root: Path):
+    cargo_target = Path(build_temp).resolve() / "cargo"
+    result = subprocess.run([
+        "cargo", "build", "--release", "--locked", "--offline", "--lib",
+        "--manifest-path", config["rust-manifest"],
+        "--target-dir", str(cargo_target), "--message-format=json-render-diagnostics",
+    ], check=True, capture_output=True, text=True)
+    binaries = []
+    for line in result.stdout.splitlines():
+        message = json.loads(line)
+        if (message.get("reason") == "compiler-artifact"
+                and message["target"]["name"] == config["rust-library"]):
+            binaries.extend(Path(x) for x in message["filenames"]
+                            if Path(x).suffix in {".so", ".dylib", ".dll"})
+    if len(binaries) != 1:
+        raise ValueError("Cargo must produce exactly one configured cdylib")
+    destination = package_root / "_native" / binaries[0].name
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(binaries[0], destination)
+    headers = []
+    for source in sorted((root / "include").glob("*.h")):
+        header = destination.parent / source.name
+        shutil.copyfile(source, header)
+        headers.append(header)
+    rustc = subprocess.check_output(["rustc", "-vV"], text=True).strip()
+    return destination, headers, rustc
+
+
+def _wheel_commands(commands: dict, wheel_staging: Path | None, *, native_only: bool = False):
+    if wheel_staging is None and not native_only:
+        return commands
+    from setuptools.command.build import build
+    from setuptools.command.bdist_wheel import bdist_wheel
+
+    class WheelBuild(build):
+        def finalize_options(self):
+            super().finalize_options()
+            self.build_lib = str(wheel_staging / "lib")
+
+    class WheelDistribution(bdist_wheel):
+        def finalize_options(self):
+            super().finalize_options()
+            if wheel_staging is not None:
+                self.bdist_dir = str(wheel_staging / "wheel")
+            if native_only:
+                self.root_is_pure = False
+
+        def get_tag(self):
+            tag = super().get_tag()
+            return ("py3", "none", tag[2]) if native_only else tag
+
+        def run(self):
+            if self.skip_build:
+                raise ValueError("Sorust wheel builds require a fresh build; --skip-build is unsupported")
+            super().run()
+
+    if wheel_staging is not None:
+        commands["build"] = WheelBuild
+    commands["bdist_wheel"] = WheelDistribution
+    return commands
+
+
 def _setup(wheel_staging: Path | None = None):
     from Cython.Build import cythonize
     from setuptools import Extension, setup
@@ -202,30 +288,7 @@ def _setup(wheel_staging: Path | None = None):
                 headers = [package_root / path for path in component["headers"]]
                 rustc = component["manifest"]["rustc"]
             else:
-                cargo_target = Path(self.build_temp).resolve() / "cargo"
-                result = subprocess.run([
-                    "cargo", "build", "--release", "--locked", "--offline", "--lib",
-                    "--manifest-path", config["rust-manifest"],
-                    "--target-dir", str(cargo_target), "--message-format=json-render-diagnostics",
-                ], check=True, capture_output=True, text=True)
-                binaries = []
-                for line in result.stdout.splitlines():
-                    message = json.loads(line)
-                    if (message.get("reason") == "compiler-artifact"
-                            and message["target"]["name"] == config["rust-library"]):
-                        binaries.extend(Path(x) for x in message["filenames"]
-                                        if Path(x).suffix in {".so", ".dylib", ".dll"})
-                if len(binaries) != 1:
-                    raise ValueError("Cargo must produce exactly one configured cdylib")
-                destination = package_root / "_native" / binaries[0].name
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(binaries[0], destination)
-                headers = []
-                for source in sorted((root / "include").glob("*.h")):
-                    header = destination.parent / source.name
-                    shutil.copyfile(source, header)
-                    headers.append(header)
-                rustc = subprocess.check_output(["rustc", "-vV"], text=True).strip()
+                destination, headers, rustc = _build_rust(root, config, self.build_temp, package_root)
             paths = [("python-extension", Path(self.get_ext_fullpath(x)))
                      for x in config["python-modules"]] + [("rust-cdylib", destination)]
             resources = []
@@ -266,33 +329,12 @@ def _setup(wheel_staging: Path | None = None):
 
     extensions = [Extension(name, [str(Path("src", *name.split(".")).with_suffix(".py"))])
                   for name in config["python-modules"]]
-    commands = {"build_ext": DualBuild}
-    if wheel_staging is not None:
-        from setuptools.command.build import build
-        from setuptools.command.bdist_wheel import bdist_wheel
-
-        class WheelBuild(build):
-            def finalize_options(self):
-                super().finalize_options()
-                self.build_lib = str(wheel_staging / "lib")
-
-        class WheelDistribution(bdist_wheel):
-            def finalize_options(self):
-                super().finalize_options()
-                self.bdist_dir = str(wheel_staging / "wheel")
-
-            def run(self):
-                if self.skip_build:
-                    raise ValueError("Sorust wheel builds require a fresh build; --skip-build is unsupported")
-                super().run()
-
-        commands["build"] = WheelBuild
-        commands["bdist_wheel"] = WheelDistribution
+    commands = _wheel_commands({"build_ext": DualBuild}, wheel_staging)
     setup(ext_modules=cythonize(extensions, build_dir="build/cython", language_level=3),
           cmdclass=commands)
 
 
-def _source_digest(root: Path, config: dict, component: dict | None = None) -> str:
+def _source_files(root: Path, config: dict) -> list[Path]:
     files = [root / "pyproject.toml", *sorted((root / "src").rglob("*.py"))]
     if "rust-manifest" in config:
         crate = root / Path(config["rust-manifest"]).parent
@@ -302,6 +344,11 @@ def _source_digest(root: Path, config: dict, component: dict | None = None) -> s
         if script is not None and script not in files:
             files.append(script)
     files += [path for path in _resource_files(root, config) if path not in files]
+    return files
+
+
+def _source_digest(root: Path, config: dict, component: dict | None = None) -> str:
+    files = _source_files(root, config)
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.relative_to(root).as_posix().encode() + b"\0")
@@ -317,24 +364,28 @@ def _source_digest(root: Path, config: dict, component: dict | None = None) -> s
     return digest.hexdigest()
 
 
-def _backend(wheel_staging: Path | None = None):
+def _backend(wheel_staging: Path | None = None, setup_function=None):
     from setuptools.build_meta import _BuildMetaBackend
 
     class Backend(_BuildMetaBackend):
         def run_setup(self, setup_script="setup.py"):
             if Path(setup_script).exists():
                 raise ValueError("Sorust consumers use pyproject.toml without setup.py")
-            _setup(wheel_staging)
+            (setup_function or _setup)(wheel_staging)
 
     return Backend()
 
 
-def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+def _build_wheel(wheel_directory, config_settings=None, metadata_directory=None, setup_function=None):
     # Reuse compiler caches, but never package payload from a previous build.
     build_root = Path.cwd().resolve() / "build"
     build_root.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="sorust-wheel-", dir=build_root) as staging:
-        return _backend(Path(staging)).build_wheel(wheel_directory, config_settings, metadata_directory)
+        return _backend(Path(staging), setup_function).build_wheel(wheel_directory, config_settings, metadata_directory)
+
+
+def build_wheel(wheel_directory, config_settings=None, metadata_directory=None):
+    return _build_wheel(wheel_directory, config_settings, metadata_directory)
 
 
 def build_sdist(sdist_directory, config_settings=None):

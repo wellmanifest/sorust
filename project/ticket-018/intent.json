@@ -1,0 +1,114 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-018",
+  "summary": "Build standalone Rust wheels from Cargo sources",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-018/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/backend.py",
+    "src/sorust/rust_backend.py",
+    "tests/test_rust_backend.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "5e96b66883e99b390816464b5e44f5c04443caec",
+    "targetBranch": "main",
+    "outcome": "Build standalone Rust component wheels from Cargo sources through production PEP517 backend without Cython/Python payload, reuse produced wheel in Python consumer, independently merge and preserve/release checkout.",
+    "nonGoals": [
+      "Rust algorithm/C ABI/runtime dependency/platform or manifest schema changes; automatic downloads, cross-interpreter coverage, process-wide deduplication.",
+      "Source consumer migration, actual NL algorithm replacement, speed guarantee, registry release/deploy or protected-policy/Docs adoption changes."
+    ],
+    "complexity": "L",
+    "estimatedMinutes": 85,
+    "budgets": {
+      "maxAffectedComponents": 4,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 1
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Add sorust.rust_backend with native-only configuration using Cargo source, lock/default src/lib.rs and static project metadata; reject Python modules/resources/prebuilt mode, setuptools packaging settings, runtime deps/scripts/dynamic metadata and unsafe selected sources. Share existing Cargo execution, source-input list/fingerprint order, setup factory and fresh staging/wheel guard with dual backend. Native Distribution schedules Rust build without extensions, disables Python packaging, emits existing strict Rust-only manifest and py3-none-platform wheel. Automatically include selected Rust sources/headers/build script in sdist. No native loading during build; Rust required only in producer. Preserve existing dual/prebuilt defaults. Test real source sdist->wheel with Cython import blocked, installed metadata/C ABI, compiled Python consumer with Cargo/rustc failure stubs, actual fresh Cython-absent producer canary. Keep canonicalv22 and independent delivery.",
+      "components": [
+        {
+          "name": "shared-build-primitives",
+          "paths": [
+            "src/sorust/backend.py"
+          ]
+        },
+        {
+          "name": "native-source-backend",
+          "paths": [
+            "src/sorust/rust_backend.py"
+          ]
+        },
+        {
+          "name": "source-producer-regressions",
+          "paths": [
+            "tests/test_rust_backend.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "Existing sorust.rust-component/v1 output with producer source fingerprint; no schema change."
+      ],
+      "interfaceChanges": [
+        "PEP517 sorust.rust_backend entry point/native-only config profile"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; existing dual/prebuilt backend remains supported. Preserve source inputs, prior dist, receipts and all ignored checkout data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_rust_backend.py tests/test_prebuilt_component.py"
+        ],
+        "evidence": "Strict source profile, shared fingerprint stability, source inclusion/custom build script, real generic wheel without Cython imports, metadata/C ABI and Python-consumer reuse with Rust blocked."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Full regression suites, actual Cython-absent fresh source producer, produced wheel/manifest/consumer integrity and final artifacts; indexed canonicalv22/pinned Docs check."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "independent protected exact-head publication"
+        ],
+        "evidence": "Local/remote gates, frozen-head independent approval/merge, postmerge smoke, owner CAS release and preserved exact cleanup."
+      }
+    ]
+  }
+}
