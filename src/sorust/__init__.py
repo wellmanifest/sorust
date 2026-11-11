@@ -190,12 +190,9 @@ def export_rust_component(destination: str | Path, *, distribution: str, version
     return _write_export(destination, component["manifest_bytes"], component["payload"])
 
 
-@lru_cache(maxsize=1)
-def _kernel():
-    manifest = verify_artifacts()
-    item = next(x for x in manifest["artifacts"] if x["kind"] == "rust-cdylib")
+def _load_ascii_kernel(path: str):
     try:
-        library = ctypes.CDLL(str(Path(__file__).parent / item["path"]))
+        library = ctypes.CDLL(path)
         library.sorust_abi_version.argtypes = []
         library.sorust_abi_version.restype = ctypes.c_uint32
         if library.sorust_abi_version() != 1:
@@ -206,6 +203,19 @@ def _kernel():
         return library, function
     except (OSError, AttributeError, ValueError) as error:
         raise NativeArtifactError(f"Cannot load Sorust kernel: {error}") from error
+
+
+@lru_cache(maxsize=1)
+def _kernel():
+    manifest = verify_artifacts()
+    item = next(x for x in manifest["artifacts"] if x["kind"] == "rust-cdylib")
+    return _load_ascii_kernel(str(Path(__file__).parent / item["path"]))
+
+
+@lru_cache(maxsize=16)
+def _installed_ascii_kernel(path: str, payload_sha256: str):
+    # Both fields identify this cache entry; the caller audits before every lookup.
+    return _load_ascii_kernel(path)
 
 
 def _compiled():
@@ -268,13 +278,41 @@ class _PreparedAsciiTokenCounter:
         return output.value
 
 
-def prepare_ascii_token_counter(*, backend: str = "rust") -> Callable[[bytes], int]:
+def prepare_ascii_token_counter(*, backend: str = "rust", rust_component: dict | None = None,
+                                rust_library: str = "sorust_kernel") -> Callable[[bytes], int]:
     """Audit artifacts and bind a native scalar counter for repeated calls.
 
     The callable retains its native entry and Rust library. Calls do not audit
     files again; use verify_artifacts or prepare anew to detect on-disk drift.
     Process loader caches remain in effect; this is not a hot-reload API.
+
+    An explicit rust_component descriptor selects an installed Rust-only donor.
+    Every preparation audits it, then reuses a binding by absolute path and hash.
+    Installed native files must remain immutable while the process uses them.
     """
+    if backend not in ("rust", "compiled-python"):
+        raise ValueError("backend must be rust or compiled-python")
+    if rust_component is None and rust_library != "sorust_kernel":
+        raise ValueError("rust_library requires an installed rust_component")
+    if rust_component is not None:
+        if backend != "rust":
+            raise ValueError("rust_component requires the Rust backend")
+        from .backend import _rust_component
+
+        try:
+            if not isinstance(rust_library, str) or not re.fullmatch(r"[a-zA-Z_]\w*", rust_library):
+                raise ValueError("invalid Rust library name")
+            component = _rust_component({"abi-version": 1, "rust-library": rust_library,
+                                        "rust-component": rust_component})
+            manifest = component["manifest"]
+            if manifest["schema"] != "sorust.rust-component/v1":
+                raise ValueError("installed counter requires a Rust-only component manifest")
+        except ValueError as error:
+            raise NativeArtifactError(f"Cannot prepare installed Rust counter: {error}") from error
+        item = manifest["artifacts"][0]
+        path = str(component["root"] / component["library"])
+        library, function = _installed_ascii_kernel(path, item["sha256"])
+        return _PreparedAsciiTokenCounter(function, library)
     if backend == "compiled-python":
         try:
             function = _compiled().count_ascii_tokens
@@ -283,8 +321,6 @@ def prepare_ascii_token_counter(*, backend: str = "rust") -> Callable[[bytes], i
         if not callable(function):
             raise NativeArtifactError("Compiled Python scalar entry required")
         return _PreparedAsciiTokenCounter(function)
-    if backend != "rust":
-        raise ValueError("backend must be rust or compiled-python")
     verify_artifacts()
     library, function = _kernel()
     return _PreparedAsciiTokenCounter(function, library)
