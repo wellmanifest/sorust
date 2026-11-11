@@ -18,7 +18,8 @@ from typing import SupportsIndex
 
 __version__ = "0.1.0"
 __all__ = ["count_ascii_tokens", "count_ascii_tokens_many", "iter_ascii_token_counts",
-           "prepare_ascii_token_counter", "verify_artifacts", "export_artifacts",
+           "prepare_ascii_token_counter", "prepare_ascii_token_batch_counter",
+           "verify_artifacts", "export_artifacts",
            "export_rust_component", "NativeArtifactError"]
 
 
@@ -290,6 +291,11 @@ def prepare_ascii_token_counter(*, backend: str = "rust", rust_component: dict |
     Every preparation audits it, then reuses a binding by absolute path and hash.
     Installed native files must remain immutable while the process uses them.
     """
+    library, function = _prepare_ascii_entry(backend, rust_component, rust_library, many=False)
+    return _PreparedAsciiTokenCounter(function, library)
+
+
+def _prepare_ascii_entry(backend, rust_component, rust_library, *, many):
     if backend not in ("rust", "compiled-python"):
         raise ValueError("backend must be rust or compiled-python")
     if rust_component is None and rust_library != "sorust_kernel":
@@ -312,23 +318,21 @@ def prepare_ascii_token_counter(*, backend: str = "rust", rust_component: dict |
         item = manifest["artifacts"][0]
         path = str(component["root"] / component["library"])
         library, function = _installed_ascii_kernel(path, item["sha256"])
-        return _PreparedAsciiTokenCounter(function, library)
+        return _bind_many_kernel(library) if many else (library, function)
     if backend == "compiled-python":
+        entry = "batch" if many else "scalar"
         try:
-            function = _compiled().count_ascii_tokens
+            function = getattr(_compiled(), "count_ascii_tokens_many" if many else "count_ascii_tokens")
         except AttributeError as error:
-            raise NativeArtifactError("Compiled Python scalar entry required") from error
+            raise NativeArtifactError(f"Compiled Python {entry} entry required") from error
         if not callable(function):
-            raise NativeArtifactError("Compiled Python scalar entry required")
-        return _PreparedAsciiTokenCounter(function)
+            raise NativeArtifactError(f"Compiled Python {entry} entry required")
+        return None, function
     verify_artifacts()
-    library, function = _kernel()
-    return _PreparedAsciiTokenCounter(function, library)
+    return _many_kernel() if many else _kernel()
 
 
-@lru_cache(maxsize=1)
-def _many_kernel():
-    library, _ = _kernel()
+def _bind_many_kernel(library):
     try:
         function = library.sorust_count_ascii_tokens_many_v1
         function.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t),
@@ -339,8 +343,40 @@ def _many_kernel():
         raise NativeArtifactError("Cannot load Sorust batch kernel") from error
 
 
-def count_ascii_tokens_many(inputs: Iterable[bytes], *, backend: str = "rust") -> list[int]:
-    """Count each byte buffer in order; Rust batches join buffers for one FFI call."""
+@lru_cache(maxsize=1)
+def _many_kernel():
+    library, _ = _kernel()
+    return _bind_many_kernel(library)
+
+
+class _PreparedAsciiTokenBatchCounter:
+    __slots__ = ("_function", "_library")
+
+    def __init__(self, function, library=None):
+        self._function = function
+        self._library = library
+
+    def __call__(self, inputs: Iterable[bytes]) -> list[int]:
+        values = _batch_values(inputs)
+        if self._library is None:
+            return self._function(values)
+        return _call_batch(self._function, _batch_buffers(values))
+
+
+def prepare_ascii_token_batch_counter(*, backend: str = "rust", rust_component: dict | None = None,
+                                      rust_library: str = "sorust_kernel") -> Callable[[Iterable[bytes]], list[int]]:
+    """Audit once per preparation and retain a batch entry for repeated calls.
+
+    Each call materializes its iterable and owns the joined input/length/output
+    buffers. Rust receives one batch FFI call. Hot calls do not re-audit files.
+    Selection, library lifetime and immutable-install rules match the scalar
+    factory; a missing batch symbol is an error, without a scalar-loop fallback.
+    """
+    library, function = _prepare_ascii_entry(backend, rust_component, rust_library, many=True)
+    return _PreparedAsciiTokenBatchCounter(function, library)
+
+
+def _batch_values(inputs):
     values = []
     for data in inputs:
         if not isinstance(data, bytes):
@@ -348,6 +384,27 @@ def count_ascii_tokens_many(inputs: Iterable[bytes], *, backend: str = "rust") -
         if type(data) is not bytes:
             data = memoryview(data).tobytes()
         values.append(data)
+    return values
+
+
+def _batch_buffers(values):
+    joined = b"".join(values)
+    lengths = (ctypes.c_size_t * len(values))(*(len(data) for data in values))
+    output = (ctypes.c_uint64 * len(values))()
+    return joined, lengths, output
+
+
+def _call_batch(function, buffers):
+    joined, lengths, output = buffers
+    status = function(joined, len(joined), lengths, len(lengths), output)
+    if status:
+        raise NativeArtifactError(f"Rust batch kernel returned status {status}")
+    return list(output)
+
+
+def count_ascii_tokens_many(inputs: Iterable[bytes], *, backend: str = "rust") -> list[int]:
+    """Count each byte buffer in order; Rust batches join buffers for one FFI call."""
+    values = _batch_values(inputs)
     if backend == "compiled-python":
         try:
             function = _compiled().count_ascii_tokens_many
@@ -356,14 +413,9 @@ def count_ascii_tokens_many(inputs: Iterable[bytes], *, backend: str = "rust") -
         return function(values)
     if backend != "rust":
         raise ValueError("backend must be rust or compiled-python")
-    joined = b"".join(values)
-    lengths = (ctypes.c_size_t * len(values))(*(len(data) for data in values))
-    output = (ctypes.c_uint64 * len(values))()
+    buffers = _batch_buffers(values)
     _, function = _many_kernel()
-    status = function(joined, len(joined), lengths, len(values), output)
-    if status:
-        raise NativeArtifactError(f"Rust batch kernel returned status {status}")
-    return list(output)
+    return _call_batch(function, buffers)
 
 
 def iter_ascii_token_counts(inputs: Iterable[bytes], *, batch_size: SupportsIndex = 256,

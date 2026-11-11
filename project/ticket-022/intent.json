@@ -1,0 +1,106 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-022",
+  "summary": "Prepare shared native batch counters for repeated FFI calls",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-022/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "tests/test_prepared_batch_counter.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "da055882f32facd43ef8bda4b107a4aa6201601f",
+    "targetBranch": "main",
+    "outcome": "Prepare reusable batch counters for SDK or installed native donor with one batch FFI per hot call and no repeated artifact audits; preserve old APIs and independently merge verified artifacts.",
+    "nonGoals": [
+      "No algorithm/ABI/schema/runtime dependency/platform or consumer migration, streaming API expansion, hot reload/global deduplication, production speed guarantee, download or registry release/deploy."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 85,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 3,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 1
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Add prepare_ascii_token_batch_counter returning callable over iterable[bytes], supporting Rust SDK, compiled-python and existing pinned installed Rust-only donor. Extract shared preparation selection from scalar factory, batch symbol binder and normalization/packing/status helpers; preserve count_ascii_tokens_many validation/packing/capability ordering and iterator APIs. Callable retains native function/library, performs no file or metadata lookup per batch. Audit each preparation before cached handle reuse; optional missing batch symbol fails without breaking scalar. Test ownership/drift/ABI/errors/types/empty/generator/lifetime/threads/shared handles. Actual source-donor proof without tools/build deps/exports plus paired warmed scalar-loop vs batch timing on fixed corpus, no performance threshold.",
+      "components": [
+        {
+          "name": "prepared-batch-runtime",
+          "paths": [
+            "src/sorust/__init__.py"
+          ]
+        },
+        {
+          "name": "prepared-batch-regressions",
+          "paths": [
+            "tests/test_prepared_batch_counter.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "None; installed snapshot/backend and on-wire manifests unchanged."
+      ],
+      "interfaceChanges": [
+        "prepare_ascii_token_batch_counter Python API"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; existing scalar/many/stream factories stay compatible; preserve old dist and all ignored data."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_prepared_batch_counter.py"
+        ],
+        "evidence": "Prepared batch validation, one FFI call, real buffer lengths, errors/empty/generator/compiled behavior, audit-before-cache/lifetime/symbol/default regressions."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Full suites and actual no-toolchain/build-dep source-donor scalar+batch clients share handle; threaded parity, no hot file reads/export; paired timing/no threshold, final artifacts/reused NL8, indexed canonicalv26/pinned Docs."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "independent protected exact-head delivery"
+        ],
+        "evidence": "Exact-head local/remote gates, independent approval/merge, postmerge smoke, owner release and preserved cleanup."
+      }
+    ]
+  }
+}
