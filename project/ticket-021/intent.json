@@ -1,0 +1,108 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-021",
+  "summary": "Prepare counters from pinned installed Rust components",
+  "workstream": "integration",
+  "classification": {
+    "kind": "FEATURE",
+    "priority": "P2",
+    "origin": "requested"
+  },
+  "allowedPaths": [
+    "project/ticket-021/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    "docs/information/sorust-binary-standard.md",
+    "src/sorust/__init__.py",
+    "src/sorust/backend.py",
+    "tests/test_installed_component_counter.py"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "701c89a33d41917fa5213b3decc299e605cecc5e",
+    "targetBranch": "main",
+    "outcome": "Prepare scalar counters using one verified installed native Rust component directly, retain existing defaults and binary contracts, demonstrate shared loaded handle without exports, independently merge and clean owned checkout.",
+    "nonGoals": [
+      "No algorithm/ABI/manifest schema/runtime dependency/platform change, consumer source migration, general arbitrary ABI loader, batch API expansion, hot reload, global deduplication or speed guarantee, download, registry release/deploy."
+    ],
+    "complexity": "M",
+    "estimatedMinutes": 85,
+    "budgets": {
+      "maxAffectedComponents": 3,
+      "maxImplementationFiles": 4,
+      "maxRuntimeDependencies": 0,
+      "maxPublicInterfaceChanges": 1
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Add optional rust_component descriptor and rust_library identity to prepare_ascii_token_counter for Rust-only installed donors. Reuse backend._rust_component audit and expose its verified absolute root only as private local snapshot result, excluded from provenance/fingerprint. Share scalar C ABI binder with existing SDK loader. Validate every preparation before reusing bounded16 cache by absolute library path/payload hash. Reuse existing callable/library retention and bytes semantics; default and compiled-python modes unchanged. Reject descriptor/ABI/symbol/ownership/drift failures before load; no import/export/copy/build. Test old fingerprint equality and real fresh runtime clients sharing installed path/handle/map with no toolchain/build deps. Keep immutable-install/process-cache/no-hot-reload contract explicit.",
+      "components": [
+        {
+          "name": "installed-counter-runtime",
+          "paths": [
+            "src/sorust/__init__.py",
+            "src/sorust/backend.py"
+          ]
+        },
+        {
+          "name": "installed-counter-regressions",
+          "paths": [
+            "tests/test_installed_component_counter.py"
+          ]
+        },
+        {
+          "name": "canonical-standard",
+          "paths": [
+            "docs/information/sorust-binary-standard.md"
+          ]
+        }
+      ],
+      "dataChanges": [
+        "Private snapshot gains absolute root only; on-wire manifests and source digest inputs unchanged."
+      ],
+      "interfaceChanges": [
+        "Optional installed-component selection on prepare_ascii_token_counter"
+      ],
+      "responsibilityChanges": false,
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Protected reviewed revert; default SDK counter and export/prebuilt flows remain. Preserve artifacts/ignored recovery and prior dist."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-01",
+        "commands": [
+          "python -m pytest -q tests/test_installed_component_counter.py"
+        ],
+        "evidence": "Validate descriptor/identity/ownership/safe paths/drift, ABI/symbols and backend selection before load; retain input semantics/lifetime/defaults and old/new source fingerprints."
+      },
+      {
+        "criterion": "AC-02",
+        "commands": [
+          "python -m pytest -q tests",
+          "cargo test --locked --offline --manifest-path crates/sorust-kernel/Cargo.toml",
+          "python -m build --no-isolation"
+        ],
+        "evidence": "Full suites, actual installed native wheel in fresh no-build-dep/tool runtime, two clients share donor handle/path/mapping, no donor import/export, original bytes/reused NL8 and final artifacts. Canonicalv25/index/pinned Docs."
+      },
+      {
+        "criterion": "AC-03",
+        "commands": [
+          "./project/governance-check.sh",
+          "independent protected exact-head delivery"
+        ],
+        "evidence": "Exact-head gates/independent approval and merge, postmerge SDK/component smoke, current owner release and preserved exact cleanup."
+      }
+    ]
+  }
+}

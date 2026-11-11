@@ -152,7 +152,7 @@ def _rust_component(config: dict) -> dict:
         provenance = {"distribution": canonical(spec["distribution"]), "version": installed.version,
                       "package": spec["package"], "manifest_sha256": spec["manifest-sha256"],
                       "source_sha256": manifest["source_sha256"]}
-        return {"manifest": manifest, "manifest_bytes": raw, "payload": payload,
+        return {"root": root.absolute(), "manifest": manifest, "manifest_bytes": raw, "payload": payload,
                 "library": Path(library["path"]), "headers": [Path(x["path"]) for x in headers],
                 "provenance": provenance}
     except (metadata.PackageNotFoundError, OSError, ValueError, KeyError, TypeError, NativeArtifactError) as error:
