@@ -1776,7 +1776,7 @@ def _projected_plan_items(diagnostics, plans, projection_record_ids):
 
 
 def _analyze_criterion_coverage(document, plan_corpora, findings):
-    all_plan_text = "\n".join(plan_corpora.values())
+    all_plan_text = "\n".join(plan_corpora.values()).lower()
     for criterion in document["acceptanceCriteria"]:
         if criterion["id"].lower() not in all_plan_text and criterion["statement"].lower() not in all_plan_text:
             findings.append(

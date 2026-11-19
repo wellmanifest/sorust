@@ -53,7 +53,7 @@ def require_ref(value: Any, label: str) -> str:
         not isinstance(value, str)
         or not value
         or len(value) > 255
-        or value == "HEAD"
+        or value in {"HEAD", "@"}
         or value.startswith(("/", "-"))
         or value.endswith(("/", "."))
         or any(token in value for token in ("..", "//", "@{"))

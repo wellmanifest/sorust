@@ -28,6 +28,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tarfile
@@ -217,9 +218,9 @@ def continuity_times(primary: Path) -> dict[str, datetime]:
     return latest
 
 
-def live_processes(path: Path) -> list[int]:
+def live_processes(path: Path, *, include_callers: bool = False) -> list[int]:
     """Processes whose cwd is inside the worktree (Linux /proc only; elsewhere none are observed)."""
-    proc, own, pids = Path("/proc"), {os.getpid(), os.getppid()}, []
+    proc, own, pids = Path("/proc"), set() if include_callers else {os.getpid(), os.getppid()}, []
     if not proc.is_dir():
         return pids
     target = str(path.resolve())
@@ -230,6 +231,7 @@ def live_processes(path: Path) -> list[int]:
             cwd = os.readlink(entry / "cwd")
         except OSError:
             continue
+        cwd = cwd.removesuffix(" (deleted)")
         if cwd == target or cwd.startswith(target + os.sep):
             pids.append(int(entry.name))
     return sorted(pids)
@@ -428,9 +430,19 @@ def write_atomic(path: Path, data: bytes) -> None:
 @contextmanager
 def lease_lock(lease_path: Path):
     """Serialize every idle-takeover transition of one lease; a held lock refuses, never waits."""
+    if any(p.is_symlink() for p in (lease_path, *lease_path.parents)):
+        raise PermissionError("Symlinked lease path is unsafe; preserve and reconcile.")
+    lease_path.parent.mkdir(parents=True, exist_ok=True)
     lock = lease_path.with_name(lease_path.name + ".lock")
-    descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
     try:
+        descriptor = os.open(lock, flags, 0o600)
+    except OSError as error:
+        raise PermissionError("Unsafe lease lock file; preserve and reconcile.") from error
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise PermissionError("Unsafe lease lock file; preserve and reconcile.")
         try:
             if fcntl:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -438,6 +450,9 @@ def lease_lock(lease_path: Path):
                 msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
         except OSError as error:
             raise PermissionError("Another transition holds this lease; re-observe.") from error
+        named = os.stat(lock, follow_symlinks=False)
+        if not stat.S_ISREG(named.st_mode) or (named.st_dev, named.st_ino) != (info.st_dev, info.st_ino):
+            raise PermissionError("Lease lock changed during acquisition; re-observe.")
         yield
     finally:
         os.close(descriptor)
@@ -500,10 +515,26 @@ def takeover(root: Path, ticket: str, actor: str, session: str, now: datetime | 
         raise PermissionError(f"{ticket} is NO_LIVE_LEASE; idle takeover needs IDLE_TAKEOVER_ELIGIBLE.")
     with lease_lock(Path(entry["leasePath"])):
         # Decide again under the lock: the first observation only located the lease.
-        return locked_takeover(root, ticket, actor, session, now, runtime)
+        return locked_takeover(root, ticket, actor, session, now, runtime, _lock_held=True)
 
 
-def locked_takeover(root: Path, ticket: str, actor: str, session: str, now: datetime, runtime) -> dict[str, Any]:
+def locked_takeover(
+    root: Path,
+    ticket: str,
+    actor: str,
+    session: str,
+    now: datetime,
+    runtime,
+    *,
+    _lock_held: bool = False,
+) -> dict[str, Any]:
+    if not _lock_held:
+        board = observe(root, now, runtime)
+        entry = next((item for item in board["tickets"] if item["ticket"] == ticket), None)
+        if entry is None:
+            raise PermissionError(f"{ticket} is NO_LIVE_LEASE; idle takeover needs IDLE_TAKEOVER_ELIGIBLE.")
+        with lease_lock(Path(entry["leasePath"])):
+            return locked_takeover(root, ticket, actor, session, now, runtime, _lock_held=True)
     board = observe(root, now, runtime)
     entry = next((item for item in board["tickets"] if item["ticket"] == ticket), None)
     if entry is None or entry["state"] != "IDLE_TAKEOVER_ELIGIBLE":
@@ -574,9 +605,20 @@ def locked_takeover(root: Path, ticket: str, actor: str, session: str, now: date
             raise PermissionError("Prepared handoff changed; preserve it and reconcile.")
     else:
         write_atomic(pending, prepared_bytes)
-    # Preparing recovery data is an I/O boundary: compare the original lease
-    # again immediately before replacement. Prepared data grants no authority.
-    if lease_path.read_bytes() != original or file_identity(lease_path) != identity:
+    # Preparing recovery data is an I/O boundary: re-verify idle eligibility and
+    # compare the original lease again under lease_lock immediately before replacement.
+    # Prepared data grants no authority.
+    latest_board = observe(root, now, runtime)
+    latest_entry = next((item for item in latest_board["tickets"] if item["ticket"] == ticket), None)
+    if (
+        latest_entry is None
+        or latest_entry["state"] != "IDLE_TAKEOVER_ELIGIBLE"
+        or Path(latest_entry["leasePath"]) != lease_path
+        or git(worktree, "rev-parse", "HEAD") != claimed["headSha"]
+        or lease_path.is_symlink()
+        or lease_path.read_bytes() != original
+        or file_identity(lease_path) != identity
+    ):
         raise PermissionError("Lease changed while preparing takeover (compare-and-swap lost); re-observe.")
     write_atomic(lease_path, claimed_bytes)
     if lease_path.read_bytes() != claimed_bytes:
@@ -596,6 +638,205 @@ def locked_takeover(root: Path, ticket: str, actor: str, session: str, now: date
     return record
 
 
+def continue_local_lease(root: Path, request_path: Path, actor: str, session: str,
+                         *, recover: bool, now: datetime | None = None) -> dict[str, Any]:
+    """Explicit local controller effects; never infer ownership from a snapshot."""
+    if not IDENTITY_RE.fullmatch(actor) or not IDENTITY_RE.fullmatch(session):
+        raise ValueError("Explicit actor and session required")
+    primary = primary_checkout(root)
+    restoration = pinned_module(primary, "ticket_restoration.py")
+    anchored = pinned_module(primary, "terminal_lease_release.py")
+    runtime = lease_runtime(primary)
+    now = now or datetime.now(timezone.utc)
+    moment = now.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    def require(condition, message):
+        if not condition:
+            raise PermissionError(message)
+    def restoration_call(callback, *args, **kwargs):
+        try:
+            return callback(*args, **kwargs)
+        except restoration.recovery.RecoveryError as error:
+            raise PermissionError(str(error)) from error
+    request_path = restoration_call(restoration.safe, request_path)
+    request = anchored.read_path(request_path)
+    common_fields = {"schema", "requestId"}
+    fields = common_fields | ({"workstream", "restoration"} if recover else
+                             {"ticket", "reservationSha256", "leaseRevision", "fencingToken"})
+    schema = "new-project.expired-reservation-recovery/v1" if recover else "new-project.owner-lease-checkpoint/v1"
+    require(isinstance(request, dict) and set(request) == fields and request["schema"] == schema,
+            "Invalid lease continuation request")
+    require(isinstance(request["requestId"], str) and re.fullmatch(r"[a-z0-9][a-z0-9.-]{0,95}", request["requestId"]),
+            "Unsafe request identity")
+    if recover:
+        subject = request["restoration"]
+        restoration_call(restoration.validate_request, subject, request["workstream"], local=True)
+        snapshot_path = restoration_call(restoration.safe, subject["snapshotPath"])
+        require(not any(snapshot_path.is_relative_to(Path(e["worktree"]).resolve())
+                        for e in restoration.start.worktrees(primary)), "Snapshot must be outside checkouts")
+        files, intent = restoration_call(restoration.load_snapshot, subject, request["workstream"])
+        ticket, worktree_id = subject["ticket"], subject["worktreeId"]
+    else:
+        ticket, worktree_id = request["ticket"], root.resolve().name
+        require(isinstance(ticket, str) and TICKET_RE.fullmatch(ticket)
+                and worktree_id.startswith(ticket + "--"), "Checkpoint must run in the canonical owned checkout")
+        require(all(type(request[k]) is int and request[k] > 0 for k in ("leaseRevision", "fencingToken"))
+                and isinstance(request["reservationSha256"], str)
+                and re.fullmatch(r"[0-9a-f]{64}", request["reservationSha256"]), "Invalid checkpoint CAS")
+        subject = request
+        files = intent = None
+    path = primary / ".subactor/leases" / (worktree_id + ".json")
+    require(not request_path.is_relative_to(primary), "Request must be outside the repository")
+    digest = hashlib.sha256(json.dumps({"request": request, "actor": actor, "session": session},
+                                       sort_keys=True).encode()).hexdigest()
+    receipt_dir = primary / ".subactor/receipts/lease-continuation"
+    name = request["requestId"] + ".json"
+    with anchored.directory(path.parent) as (fd, verify):
+        with anchored.lease_lock(fd, path.name, verify) as verify_lock:
+            original = anchored.read_at(fd, path.name, private=True)
+            require(os.stat(path.name, dir_fd=fd, follow_symlinks=False).st_uid == os.geteuid(),
+                    "Lease belongs to another OS owner")
+            lease = json.loads(original, object_pairs_hook=restoration.unique)
+            require(not runtime.validate_lease(lease), "Invalid canonical lease")
+            with anchored.directory(receipt_dir, create=True) as (receipt_fd, verify_receipts):
+                def read_optional(filename):
+                    try:
+                        return anchored.decode(anchored.read_at(receipt_fd, filename))
+                    except FileNotFoundError:
+                        return None
+                saved = read_optional(name) or read_optional(name + ".prepared")
+                if saved is not None:
+                    require(saved.get("requestSha256") == digest, "Request identity was reused for different inputs")
+                    if hashlib.sha256(original).hexdigest() == saved.get("afterSha256"):
+                        expected_environment = {"NEW_PROJECT_WRITER_ACTOR": actor, "NEW_PROJECT_WRITER_SESSION": session,
+                                                "NEW_PROJECT_LEASE_REVISION": str(lease["leaseRevision"]),
+                                                "NEW_PROJECT_FENCING_TOKEN": str(lease["fencingToken"])}
+                        require((lease["ownerActor"], lease["ownerSession"]) == (actor, session)
+                                and utc(lease["expiresAt"]) > now and not lease["publicationFrozen"]
+                                and lease["phase"] in {"claimed", "editing", "validating"}
+                                and saved["result"]["writerEnvironment"] == expected_environment
+                                and saved["result"]["leaseRevision"] == lease["leaseRevision"]
+                                and saved["result"]["fencingToken"] == lease["fencingToken"]
+                                and saved["result"]["grantsEditAuthority"] is False
+                                and saved["result"]["grantsMergeAuthority"] is False,
+                                "Saved continuation no longer binds a live owner")
+                        if recover:
+                            expected_request = {**subject, "ownerActor": actor, "ownerSession": session,
+                                                "headSha": lease["headSha"], "leaseRevision": lease["leaseRevision"],
+                                                "fencingToken": lease["fencingToken"],
+                                                "reservationSha256": hashlib.sha256(original).hexdigest()}
+                            require(saved["result"]["restorationRequest"] == expected_request,
+                                    "Saved restoration request changed")
+                        if read_optional(name) is None:
+                            verify_lock(); verify_receipts()
+                            anchored.atomic_at(receipt_fd, name, anchored.encoded(saved), exclusive=True)
+                        return saved["result"]
+                    require(hashlib.sha256(original).hexdigest() == saved.get("beforeSha256"),
+                            "Prepared continuation no longer matches current fencing")
+
+                def observe_before_write():
+                    verify_lock(); verify_receipts()
+                    require(anchored.read_at(fd, path.name, private=True) == original, "Lease CAS changed")
+                    require(hashlib.sha256(original).hexdigest() == subject["reservationSha256"]
+                            and lease["leaseRevision"] == subject["leaseRevision"]
+                            and lease["fencingToken"] == subject["fencingToken"], "Lease digest or CAS mismatch")
+                    require(lease["ticketId"] == ticket and lease["worktreeId"] == worktree_id,
+                            "Reservation identity mismatch")
+                    repo = anchored.canonical.canonical_owner_repository(
+                        git(primary, "config", "--get", "remote.origin.url", check=False))
+                    legacy = "local/" + hashlib.sha256(str(primary).encode()).hexdigest()
+                    require(lease["repositoryRef"] in {repo, legacy}, "Repository binding mismatch")
+                    phases = {"claimed", "editing", "validating", "expired"} if recover else {"claimed", "editing", "validating"}
+                    require(lease["phase"] in phases
+                            and not lease["publicationFrozen"], "Frozen or inactive lease")
+                    issued, heartbeat, expiry = (utc(lease[key]) for key in ("issuedAt", "heartbeatAt", "expiresAt"))
+                    require(all((issued, heartbeat, expiry)) and issued <= heartbeat < expiry,
+                            "Invalid lease clock bounds")
+                    if recover:
+                        require(os.name == "posix" and Path("/proc/self/cwd").is_symlink(),
+                                "Missing-checkout recovery requires observable Linux processes")
+                        board = observe(primary, now, runtime)
+                        entry = next((e for e in board["tickets"] if e["ticket"] == ticket), None)
+                        require(entry is not None and entry["state"] == "IDLE_NO_WORKTREE"
+                                and board["policy"]["enabled"] and expiry <= now,
+                                "Recovery requires an expired, idle, missing reservation under enabled policy")
+                        require((actor, session) != (lease["ownerActor"], lease["ownerSession"]),
+                                "A fresh handoff identity is required")
+                        common = Path(git(primary, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+                        record = restoration_call(restoration.reservation, primary, common, subject, request["workstream"])
+                        require(record == lease and lease["leaseId"] == subject["leaseId"]
+                                and lease["scopeHash"] == restoration.start.digest(intent["allowedPaths"]),
+                                "Snapshot scope or reservation changed")
+                        state = restoration_call(restoration.observe, primary, subject, record, files, intent)
+                        require(not state["registered"] and state["branchHead"] is None and not state["committed"],
+                                "Recovery does not replace existing branches, checkouts or integrated metadata")
+                        require(not live_processes(state["canonical"], include_callers=True),
+                                "A live writer still uses the missing checkout")
+                        require(lease["pullRequest"] is None and lease["validatorRunId"] is None,
+                                "Publication ownership requires its protected controller")
+                        return state["target"], board["policy"]["leaseMinutes"]
+                    require((actor, session) == (lease["ownerActor"], lease["ownerSession"])
+                            and heartbeat <= now < expiry, "Current live owner required")
+                    expected = primary / ".worktrees" / worktree_id
+                    require(root.resolve() == expected and not root.is_symlink()
+                            and git(root, "symbolic-ref", "--quiet", "HEAD") == lease["branchRef"],
+                            "Checkpoint must bind the canonical owned branch")
+                    return git(root, "rev-parse", "HEAD"), None
+
+                head, minutes = observe_before_write()
+                current, receipts = dict(lease), []
+                actions = (["expire"] if lease["phase"] != "expired" else []) + ["release"] if recover else ["heartbeat"]
+                for action in actions:
+                    transition = {"schema": runtime.REQUEST_SCHEMA, "requestId": request["requestId"] + "-" + action,
+                                  "leaseId": current["leaseId"], "action": action,
+                                  "expectedRevision": current["leaseRevision"], "expectedFencingToken": current["fencingToken"],
+                                  "expectedPhase": current["phase"], "requestedBy": actor,
+                                  "idempotencyKey": request["requestId"] + ":" + action,
+                                  "targetHeadSha": head if not recover else None, "replacementReceiptRef": None,
+                                  "authorityRef": "policy:explicit-local-lease-continuation;request=" + digest,
+                                  "requestedAt": moment}
+                    receipt, errors = runtime.evaluate_transition(current, transition)
+                    require(not errors, "Canonical lease transition refused")
+                    receipts.append(receipt)
+                    current.update(phase=receipt["phaseAfter"], leaseRevision=receipt["leaseRevision"],
+                                   fencingToken=receipt["fencingToken"], previousReceiptRef=receipt["receiptRef"],
+                                   eventSequence=current["eventSequence"] + 1)
+                current.update(headSha=head, heartbeatAt=moment)
+                if recover:
+                    current.update(ownerActor=actor, ownerSession=session, phase="claimed", issuedAt=moment,
+                                   expiresAt=(now + timedelta(minutes=minutes)).isoformat().replace("+00:00", "Z"),
+                                   leaseRevision=current["leaseRevision"] + 1, fencingToken=current["fencingToken"] + 1,
+                                   eventSequence=current["eventSequence"] + 1)
+                require(not runtime.validate_lease(current), "Invalid continued lease")
+                replacement = anchored.encoded(current)
+                result = {"schema": "new-project.lease-continuation/v1", "ticket": ticket,
+                          "branch": lease["branchRef"].removeprefix("refs/heads/"),
+                          "worktreePath": str(primary / ".worktrees" / worktree_id), "leasePath": str(path),
+                          "headSha": head, "leaseRevision": current["leaseRevision"], "fencingToken": current["fencingToken"],
+                          "writerEnvironment": {"NEW_PROJECT_WRITER_ACTOR": actor, "NEW_PROJECT_WRITER_SESSION": session,
+                                                "NEW_PROJECT_LEASE_REVISION": str(current["leaseRevision"]),
+                                                "NEW_PROJECT_FENCING_TOKEN": str(current["fencingToken"])},
+                          "grantsEditAuthority": False, "grantsMergeAuthority": False, "receipts": receipts}
+                if recover:
+                    result["restorationRequest"] = {**subject, "ownerActor": actor, "ownerSession": session,
+                                                    "headSha": head, "leaseRevision": current["leaseRevision"],
+                                                    "fencingToken": current["fencingToken"],
+                                                    "reservationSha256": hashlib.sha256(replacement).hexdigest()}
+                prepared = {"schema": "new-project.lease-continuation-prepare/v1", "requestSha256": digest,
+                            "beforeSha256": hashlib.sha256(original).hexdigest(),
+                            "afterSha256": hashlib.sha256(replacement).hexdigest(), "result": result}
+                raw = anchored.encoded(prepared)
+                if saved is None:
+                    anchored.atomic_at(receipt_fd, name + ".prepared", raw, exclusive=True)
+                else:
+                    require(saved == prepared, "Prepared result diverged")
+                require(observe_before_write()[0] == head, "HEAD changed while preparing continuation")
+                anchored.atomic_at(fd, path.name, replacement)
+                require(anchored.read_at(fd, path.name, private=True) == replacement, "Applied continuation changed")
+                verify_receipts(); verify_lock()
+                anchored.atomic_at(receipt_fd, name, raw, exclusive=True)
+                return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--root", type=Path, default=Path("."))
@@ -607,6 +848,11 @@ def main(argv: list[str] | None = None) -> int:
     take.add_argument("--ticket", required=True)
     take.add_argument("--actor", required=True)
     take.add_argument("--session", required=True)
+    for command in ("recover-reservation", "checkpoint-owner"):
+        operation = commands.add_parser(command, help="explicit CAS-bound local lease continuation")
+        operation.add_argument("--request", type=Path, required=True)
+        operation.add_argument("--actor", required=True)
+        operation.add_argument("--session", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "observe":
@@ -615,13 +861,17 @@ def main(argv: list[str] | None = None) -> int:
                 write_board(board)
             sys.stdout.write(json.dumps(board, indent=2) + "\n" if args.format == "json" else board_markdown(board))
             return 0
-        record = takeover(args.root, args.ticket, args.actor, args.session)
+        if args.command == "takeover":
+            record = takeover(args.root, args.ticket, args.actor, args.session)
+        else:
+            record = continue_local_lease(args.root, args.request, args.actor, args.session,
+                                          recover=args.command == "recover-reservation")
         sys.stdout.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
         return 0
     except PermissionError as error:
         sys.stderr.write(f"GOV-IDLE-TAKEOVER-001: {error}\n")
         return 1
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+    except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.CalledProcessError) as error:
         sys.stderr.write(f"GOV-IDLE-TAKEOVER-002: {error}\n")
         return 2
 

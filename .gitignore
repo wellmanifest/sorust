@@ -16,3 +16,6 @@ build/
 dist/
 target/
 .pytest_cache/
+
+# Repository-local worktrees and operational state
+*.egg

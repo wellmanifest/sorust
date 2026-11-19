@@ -28,7 +28,7 @@ SCHEMA = "new-project.required-checks/v1"
 JOB_LINE = re.compile(r"^  ([A-Za-z0-9][A-Za-z0-9_-]*):\s*(?:#.*)?$")
 JOB_NAME_LINE = re.compile(r"^    name:\s*(.+?)\s*$")
 TOP_LEVEL_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*:")
-REUSABLE_CALL = re.compile(r"^    (?:uses:|['\"]uses['\"]:)")
+REUSABLE_CALL = re.compile(r"^    (?:uses:|['\"]uses['\"]:)\s*(.*)$")
 IMMUTABLE_CALL = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml@[0-9a-f]{40}")
 CONTRACT_PATH = Path('.github/reusable-workflows.lock.json')
 CONTRACT_SCHEMA = 'new-project.reusable-workflows/v1'
@@ -211,8 +211,8 @@ def resolved_checks_text(text: str, sources: dict[str, str], callers: list[str])
     if not unresolved:
         return names
     for key, body in literal_jobs(text):
-        calls = [scalar(line.split('uses:', 1)[1]) for line in body.splitlines()
-                 if REUSABLE_CALL.match(line)]
+        calls = [scalar(match.group(1)) for line in body.splitlines()
+                 if (match := REUSABLE_CALL.match(line))]
         if not calls:
             continue
         name = literal_name(key, body)

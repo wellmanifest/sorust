@@ -1,0 +1,168 @@
+{
+  "schema": "new-project.intent/v3",
+  "ticket": "ticket-024",
+  "summary": "Adopt new-project 0.20.162",
+  "workstream": "governance",
+  "classification": {
+    "kind": "BUG",
+    "priority": "P1",
+    "origin": "regression"
+  },
+  "allowedPaths": [
+    "project/ticket-024/**",
+    "TODO.md",
+    "project/TICKETS.md",
+    ".githooks/pre-commit",
+    ".gitignore",
+    ".governance/agent_host_check.py",
+    ".governance/bootstrap_packaging_scope.py",
+    ".governance/branch_lifecycle_check.py",
+    ".governance/change_lease_check.py",
+    ".governance/check_required_checks.py",
+    ".governance/continuity_namespace.py",
+    ".governance/controller_store_compaction.py",
+    ".governance/docs/information/continuity-namespaces.md",
+    ".governance/error/GOV-CHANGE-LEASE.md",
+    ".governance/error/GOV-IDLE-TAKEOVER.md",
+    ".governance/error/GOV-TICKET-ALLOCATION.md",
+    ".governance/error/GOV-WORK-CONTINUITY.md",
+    ".governance/error/GOV-WORK-START.md",
+    ".governance/generate_required_checks.py",
+    ".governance/governance_check.py",
+    ".governance/idle_takeover.py",
+    ".governance/legacy_terminal_retirement.py",
+    ".governance/managed-copies.json",
+    ".governance/manifest.base.json",
+    ".governance/manifest.json",
+    ".governance/manifest.lock.json",
+    ".governance/owner_handoff.py",
+    ".governance/package-manifest.json",
+    ".governance/policy-dsl.lock.json",
+    ".governance/policy_dsl_check.py",
+    ".governance/prune_merged_worktrees.py",
+    ".governance/remediation_intent.py",
+    ".governance/repository_policy.py",
+    ".governance/required-checks.schema.json",
+    ".governance/standard-packs.json",
+    ".governance/terminal_lease_release.py",
+    ".governance/ticket_activity.py",
+    ".governance/ticket_recovery.py",
+    ".governance/ticket_restoration.py",
+    ".governance/ticket_storage.py",
+    ".governance/work_continuity.py",
+    ".governance/work_start_check.py",
+    ".governance/worktree_overlap_check.py",
+    "project/new-ticket.sh",
+    "pyproject.toml",
+    "scripts/install-agent-hosts.sh"
+  ],
+  "forbiddenPaths": [
+    "project/ticket-*/user-*.md"
+  ],
+  "stacks": [],
+  "dependsOn": [],
+  "conflictsWith": [],
+  "integrationTicket": null,
+  "delivery": {
+    "acceptedBaseSha": "a03cc1fc1e2e71c4735b215e0efc9dcacaffaccf",
+    "targetBranch": "main",
+    "outcome": "Adopt wellmanifest/new-project 0.20.162 with the official Goal generator; standard records hold only verifiable evidence.",
+    "nonGoals": [
+      "No manual editing of lock digests or managed copies.",
+      "No product code changes.",
+      "No unproven S4/S5 claims."
+    ],
+    "complexity": "L",
+    "estimatedMinutes": 60,
+    "standardAdoption": {
+      "sourceRepository": "wellmanifest/new-project",
+      "fromRevision": "8724674cfa7eebf0c64df2db63ff528ad8dbd159",
+      "toRevision": "8e6b51dc91a2ac7e1e771908e0fac5e12da0b9a0"
+    },
+    "budgets": {
+      "maxImplementationFiles": 15,
+      "maxAffectedComponents": 5,
+      "maxPublicInterfaceChanges": 3,
+      "maxRuntimeDependencies": 3
+    },
+    "architecture": {
+      "status": "accepted",
+      "decision": "Goal generates the managed 0.20.162 set; target-owned standard records are rebuilt from verifiable evidence in audit mode.",
+      "components": [
+        {
+          "name": "governance-adoption",
+          "paths": [
+            ".githooks/pre-commit",
+            ".gitignore",
+            ".governance/agent_host_check.py",
+            ".governance/bootstrap_packaging_scope.py",
+            ".governance/branch_lifecycle_check.py",
+            ".governance/change_lease_check.py",
+            ".governance/check_required_checks.py",
+            ".governance/continuity_namespace.py",
+            ".governance/controller_store_compaction.py",
+            ".governance/docs/information/continuity-namespaces.md",
+            ".governance/error/GOV-CHANGE-LEASE.md",
+            ".governance/error/GOV-IDLE-TAKEOVER.md",
+            ".governance/error/GOV-TICKET-ALLOCATION.md",
+            ".governance/error/GOV-WORK-CONTINUITY.md",
+            ".governance/error/GOV-WORK-START.md",
+            ".governance/generate_required_checks.py",
+            ".governance/governance_check.py",
+            ".governance/idle_takeover.py",
+            ".governance/legacy_terminal_retirement.py",
+            ".governance/managed-copies.json",
+            ".governance/manifest.base.json",
+            ".governance/manifest.json",
+            ".governance/manifest.lock.json",
+            ".governance/owner_handoff.py",
+            ".governance/package-manifest.json",
+            ".governance/policy-dsl.lock.json",
+            ".governance/policy_dsl_check.py",
+            ".governance/prune_merged_worktrees.py",
+            ".governance/remediation_intent.py",
+            ".governance/repository_policy.py",
+            ".governance/required-checks.schema.json",
+            ".governance/standard-packs.json",
+            ".governance/terminal_lease_release.py",
+            ".governance/ticket_activity.py",
+            ".governance/ticket_recovery.py",
+            ".governance/ticket_restoration.py",
+            ".governance/ticket_storage.py",
+            ".governance/work_continuity.py",
+            ".governance/work_start_check.py",
+            ".governance/worktree_overlap_check.py",
+            "pyproject.toml",
+            "scripts/install-agent-hosts.sh"
+          ]
+        }
+      ],
+      "responsibilityChanges": false,
+      "interfaceChanges": [],
+      "dataChanges": [],
+      "ui": {
+        "impact": "none",
+        "states": [],
+        "evidence": []
+      },
+      "rollback": "Restore accepted base a03cc1fc1e2e71c4735b215e0efc9dcacaffaccf; no runtime data is migrated."
+    },
+    "runtimeDependencies": [],
+    "validation": [
+      {
+        "criterion": "AC-1",
+        "commands": [
+          "goal governance adopt --target-root . --source-revision 8e6b51dc91a2ac7e1e771908e0fac5e12da0b9a0 --check"
+        ],
+        "evidence": "Goal reports the target up-to-date at 0.20.162."
+      },
+      {
+        "criterion": "AC-2",
+        "commands": [
+          "bash project/governance-check.sh"
+        ],
+        "evidence": "The governance gate passes."
+      }
+    ]
+  }
+}
