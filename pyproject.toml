@@ -31,6 +31,6 @@ pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.wellmanifest]
-standard = "0.20.144"
-revision = "8724674cfa7eebf0c64df2db63ff528ad8dbd159"
+standard = "0.20.162"
+revision = "8e6b51dc91a2ac7e1e771908e0fac5e12da0b9a0"
 gate = "project/governance-check.sh"

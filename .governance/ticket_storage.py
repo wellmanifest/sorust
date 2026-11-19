@@ -169,8 +169,18 @@ def scoped_paths(root, workstream, paths, bootstrap_adoption_digest=None):
         return []
     from governance_check import pattern_covered_by
     from work_start_check import manifest_at, material, patterns
+    if any(
+        not isinstance(raw, str)
+        or not raw
+        or "\\" in raw
+        or raw.startswith(("/", "!"))
+        or ":" in raw
+        or any(part in {"", ".", ".."} for part in raw.split("/"))
+        for raw in paths
+    ):
+        raise ValueError("canonical repository-relative scope required")
     scope = patterns(paths)
-    if any(any(part in {"", "."} for part in path.split("/")) for path in scope):
+    if any(any(part in {"", ".", ".."} for part in path.split("/")) for path in scope):
         raise ValueError("canonical repository-relative scope required")
     manifest = manifest_at(Path(root))
     workstreams = manifest['coordination']['workstreams']

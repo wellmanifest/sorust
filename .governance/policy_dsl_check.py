@@ -15,6 +15,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -193,8 +194,10 @@ def extract_markdown(source: str) -> str:
             continue  # illustrative placeholder metadata
         if re.fullmatch(r"DOCUMENT " + SYMBOL, first):
             schemas = {match.group(1) for line in significant if (match := schema_line.match(line))}
-            if schemas - POLICY_SCHEMA_IDS or header is not None:
+            if schemas - POLICY_SCHEMA_IDS:
                 continue  # independent embedded document
+            if header is not None:
+                raise PolicyError("POLICY-SYNTAX-001", "duplicate Policy DSL DOCUMENT fence", opened)
             header = block
             continue
         if first.startswith(EMBEDDED_RECORD_STARTS):
@@ -542,6 +545,7 @@ class PolicyParser:
                 if expression["node"] != "literal":
                     raise PolicyError("POLICY-SEMANTIC-001", "VARIABLE default must be a literal", item.line)
                 default = expression["value"]
+                _validate_variable_default(value_type, default, item.line)
             return {"kind": "variable", "name": match.group(1), "value_type": value_type, "required": required, "default": default}
         match = re.fullmatch(r"SECRET (" + SYMBOL + r") TYPE (\w+) FROM ENV REQUIRED REDACT", item.text)
         if match:
@@ -847,6 +851,7 @@ def validate_ir(ir: Any) -> None:
                 raise PolicyError("POLICY-SEMANTIC-001", "invalid VARIABLE requirement")
             if environment["default"] is not None:
                 validate_expression({"node": "literal", "value": environment["default"]})
+                _validate_variable_default(environment["value_type"], environment["default"])
             environment_names.append(environment["name"])
         elif kind == "secret":
             keys = {"kind", "name", "value_type", "required", "redact"}
@@ -933,6 +938,26 @@ def _validate_environment_name_type(environment: dict[str, Any]) -> None:
         raise PolicyError("POLICY-SEMANTIC-001", "invalid environment name")
     if environment["value_type"] not in SCALAR_TYPES:
         raise PolicyError("POLICY-SEMANTIC-001", "invalid environment scalar type")
+
+
+def _validate_variable_default(value_type: str, default: Any, line: int | None = None) -> None:
+    valid = False
+    if value_type == "STRING":
+        valid = isinstance(default, str) and "\x00" not in default
+    elif value_type == "PATH":
+        valid = isinstance(default, str) and bool(default) and "\x00" not in default
+    elif value_type == "URL":
+        if isinstance(default, str) and "\x00" not in default:
+            parsed = urlsplit(default)
+            valid = bool(parsed.scheme and parsed.netloc)
+    elif value_type == "INTEGER":
+        valid = isinstance(default, int) and not isinstance(default, bool)
+    elif value_type == "NUMBER":
+        valid = isinstance(default, (int, float)) and not isinstance(default, bool) and math.isfinite(default)
+    elif value_type == "BOOLEAN":
+        valid = isinstance(default, bool)
+    if not valid:
+        raise PolicyError("POLICY-SEMANTIC-001", f"VARIABLE default literal does not match TYPE {value_type}", line)
 
 
 def validate_candidate(candidate: Any) -> None:
